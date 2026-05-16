@@ -25,7 +25,7 @@
                   :key="lt.id"
                   :value="lt.id"
                 >
-                  {{ lt.displayName }}{{ lt.isPaid ? '' : '（無薪）' }}
+                  {{ lt.name }}{{ lt.isPaid ? '' : '（無薪）' }}
                 </option>
               </select>
               <small v-if="errors.leaveTypeId" class="error-text">{{ errors.leaveTypeId }}</small>
@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Card from 'primevue/card'
@@ -120,16 +120,15 @@ import AppLayout from '@/components/AppLayout.vue'
 const router = useRouter()
 const toast = useToast()
 
-// Hardcoded leave types for Phase 0 (would come from API in Phase 2)
-const leaveTypes: LeaveType[] = [
-  { id: 1, name: 'annual', displayName: '特休', isPaid: true, requiresAttachment: false, maxDaysPerYear: 14 },
-  { id: 2, name: 'sick', displayName: '病假', isPaid: true, requiresAttachment: false, maxDaysPerYear: 30 },
-  { id: 3, name: 'personal', displayName: '事假', isPaid: false, requiresAttachment: false, maxDaysPerYear: 14 },
-  { id: 4, name: 'maternity', displayName: '產假', isPaid: true, requiresAttachment: true, maxDaysPerYear: null },
-  { id: 5, name: 'paternity', displayName: '陪產假', isPaid: true, requiresAttachment: true, maxDaysPerYear: null },
-  { id: 6, name: 'bereavement', displayName: '喪假', isPaid: true, requiresAttachment: true, maxDaysPerYear: null },
-  { id: 7, name: 'other', displayName: '其他', isPaid: false, requiresAttachment: false, maxDaysPerYear: null }
-]
+const leaveTypes = ref<LeaveType[]>([])
+
+onMounted(async () => {
+  try {
+    leaveTypes.value = await leaveApi.getLeaveTypes()
+  } catch {
+    // silently ignore — dropdown will be empty
+  }
+})
 
 const form = ref({
   leaveTypeId: '' as number | '',

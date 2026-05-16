@@ -33,6 +33,16 @@ export class LeaveController {
   constructor(private readonly leaveService: LeaveService) {}
 
   /**
+   * Return all available leave types.
+   */
+  @Get('types')
+  @ApiOperation({ summary: '假別列表' })
+  @ApiResponse({ status: 200, description: '所有假別' })
+  async getLeaveTypes() {
+    return this.leaveService.getLeaveTypes();
+  }
+
+  /**
    * Submit a new leave application.
    */
   @Post('apply')
@@ -104,6 +114,22 @@ export class LeaveController {
     @Body() dto: ApproveLeaveDto,
   ) {
     return this.leaveService.approve(id, user.employeeId, dto.comment);
+  }
+
+  /**
+   * Cancel a pending leave request (own only).
+   */
+  @Patch(':id/cancel')
+  @ApiOperation({ summary: '取消假單（本人）' })
+  @ApiParam({ name: 'id', description: 'Leave request ID', type: Number })
+  @ApiResponse({ status: 200, description: 'Leave request cancelled' })
+  @ApiResponse({ status: 400, description: 'Request is not pending' })
+  @ApiResponse({ status: 403, description: 'Not your leave request' })
+  async cancel(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.leaveService.cancelLeave(id, user.employeeId);
   }
 
   /**

@@ -197,19 +197,10 @@ export interface AssignShiftPayload {
 
 export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
 
-export type LeaveTypeName =
-  | 'annual'
-  | 'sick'
-  | 'personal'
-  | 'maternity'
-  | 'paternity'
-  | 'bereavement'
-  | 'other'
-
 export interface LeaveType {
   id: number
-  name: LeaveTypeName
-  displayName: string
+  code: string
+  name: string
   isPaid: boolean
   requiresAttachment: boolean
   maxDaysPerYear: number | null
@@ -223,16 +214,12 @@ export interface LeaveRequest {
   leaveType?: LeaveType
   startDate: string
   endDate: string
-  totalDays: number
-  reason: string
+  reason: string | null
   status: LeaveStatus
-  managerId: number | null
-  managerApprovedAt: string | null
-  hrApprovedAt: string | null
-  rejectionReason: string | null
-  attachmentUrl: string | null
+  approvedBy: number | null
+  approvedAt: string | null
+  rejectReason: string | null
   createdAt: string
-  updatedAt: string
 }
 
 export interface LeaveApplyPayload {
@@ -240,7 +227,6 @@ export interface LeaveApplyPayload {
   startDate: string
   endDate: string
   reason: string
-  attachmentUrl?: string
 }
 
 // ─── Payroll ───────────────────────────────────────────────────────────────────

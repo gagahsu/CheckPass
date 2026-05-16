@@ -39,11 +39,7 @@
             <i class="pi pi-exclamation-triangle"></i>
             <span>{{ myError }}</span>
           </div>
-          <DataTable
-            v-else
-            :value="myRequests"
-            responsive-layout="scroll"
-          >
+          <DataTable v-else :value="myRequests" responsive-layout="scroll">
             <template #empty>
               <div class="empty-state">
                 <i class="pi pi-inbox"></i>
@@ -51,27 +47,33 @@
               </div>
             </template>
             <Column header="假別">
-              <template #body="{ data }">
-                {{ data.leaveType?.displayName ?? leaveTypeName(data.leaveTypeId) }}
-              </template>
+              <template #body="{ data }">{{ data.leaveType?.name ?? `假別 #${data.leaveTypeId}` }}</template>
             </Column>
             <Column field="startDate" header="開始日期" />
             <Column field="endDate" header="結束日期" />
-            <Column field="totalDays" header="天數">
-              <template #body="{ data }">
-                {{ data.totalDays }} 天
-              </template>
+            <Column header="天數">
+              <template #body="{ data }">{{ calcDays(data.startDate, data.endDate) }} 天</template>
             </Column>
             <Column field="reason" header="原因" style="max-width: 200px;">
               <template #body="{ data }">
-                <span class="truncate" :title="data.reason">{{ data.reason }}</span>
+                <span class="truncate" :title="data.reason ?? ''">{{ data.reason ?? '--' }}</span>
               </template>
             </Column>
             <Column header="狀態">
               <template #body="{ data }">
-                <Tag
-                  :value="statusLabel(data.status)"
-                  :severity="statusSeverity(data.status)"
+                <Tag :value="statusLabel(data.status)" :severity="statusSeverity(data.status)" />
+              </template>
+            </Column>
+            <Column header="操作" style="min-width: 100px;">
+              <template #body="{ data }">
+                <Button
+                  v-if="data.status === 'pending'"
+                  label="取消"
+                  icon="pi pi-times"
+                  size="small"
+                  severity="secondary"
+                  :loading="cancellingId === data.id"
+                  @click="handleCancel(data.id)"
                 />
               </template>
             </Column>
@@ -90,33 +92,23 @@
             <i class="pi pi-exclamation-triangle"></i>
             <span>{{ pendingError }}</span>
           </div>
-          <DataTable
-            v-else
-            :value="pendingRequests"
-            responsive-layout="scroll"
-          >
+          <DataTable v-else :value="pendingRequests" responsive-layout="scroll">
             <template #empty>
               <div class="empty-state">
                 <i class="pi pi-check-circle"></i>
                 <p>目前無待簽核假單</p>
               </div>
             </template>
-            <Column header="員工名稱">
-              <template #body="{ data }">
-                {{ data.employee?.name ?? `員工 #${data.employeeId}` }}
-              </template>
+            <Column header="員工">
+              <template #body="{ data }">{{ data.employee?.name ?? `員工 #${data.employeeId}` }}</template>
             </Column>
             <Column header="假別">
-              <template #body="{ data }">
-                {{ data.leaveType?.displayName ?? leaveTypeName(data.leaveTypeId) }}
-              </template>
+              <template #body="{ data }">{{ data.leaveType?.name ?? `假別 #${data.leaveTypeId}` }}</template>
             </Column>
             <Column field="startDate" header="開始日期" />
             <Column field="endDate" header="結束日期" />
-            <Column field="totalDays" header="天數">
-              <template #body="{ data }">
-                {{ data.totalDays }} 天
-              </template>
+            <Column header="天數">
+              <template #body="{ data }">{{ calcDays(data.startDate, data.endDate) }} 天</template>
             </Column>
             <Column field="reason" header="原因" style="max-width: 180px;" />
             <Column header="操作" style="min-width: 160px;">
@@ -135,8 +127,7 @@
                     icon="pi pi-times"
                     size="small"
                     severity="danger"
-                    :loading="rejectingId === data.id"
-                    @click="handleReject(data.id)"
+                    @click="openRejectDialog(data.id)"
                   />
                 </div>
               </template>
@@ -144,6 +135,34 @@
           </DataTable>
         </template>
       </Card>
+
+      <!-- Reject Dialog -->
+      <Dialog
+        v-model:visible="rejectDialogVisible"
+        header="拒絕假單"
+        modal
+        :style="{ width: '380px' }"
+      >
+        <div class="reject-form">
+          <label class="reject-label">拒絕原因 <span class="required">*</span></label>
+          <textarea
+            v-model="rejectReason"
+            class="p-inputtext reject-textarea"
+            rows="3"
+            placeholder="請填寫拒絕原因..."
+          ></textarea>
+        </div>
+        <template #footer>
+          <Button label="取消" severity="secondary" @click="rejectDialogVisible = false" />
+          <Button
+            label="確認拒絕"
+            severity="danger"
+            :loading="rejectingId !== null"
+            :disabled="!rejectReason.trim()"
+            @click="confirmReject"
+          />
+        </template>
+      </Dialog>
     </div>
   </AppLayout>
 </template>
@@ -154,6 +173,7 @@ import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
@@ -175,6 +195,11 @@ const myError = ref<string | null>(null)
 const pendingError = ref<string | null>(null)
 const approvingId = ref<number | null>(null)
 const rejectingId = ref<number | null>(null)
+const cancellingId = ref<number | null>(null)
+
+const rejectDialogVisible = ref(false)
+const rejectTargetId = ref<number | null>(null)
+const rejectReason = ref('')
 
 function statusLabel(status: LeaveStatus): string {
   const map: Record<LeaveStatus, string> = {
@@ -196,8 +221,10 @@ function statusSeverity(status: LeaveStatus): string {
   return map[status] ?? 'secondary'
 }
 
-function leaveTypeName(id: number): string {
-  return `假別 #${id}`
+function calcDays(start: string, end: string): number {
+  const s = new Date(start)
+  const e = new Date(end)
+  return Math.max(1, Math.ceil((e.getTime() - s.getTime()) / 86400000) + 1)
 }
 
 async function loadMyRequests(): Promise<void> {
@@ -226,9 +253,7 @@ async function loadPendingRequests(): Promise<void> {
 
 function switchToPending(): void {
   activeTab.value = 'pending'
-  if (pendingRequests.value.length === 0) {
-    loadPendingRequests()
-  }
+  if (pendingRequests.value.length === 0) loadPendingRequests()
 }
 
 async function handleApprove(id: number): Promise<void> {
@@ -244,16 +269,38 @@ async function handleApprove(id: number): Promise<void> {
   }
 }
 
-async function handleReject(id: number): Promise<void> {
-  rejectingId.value = id
+function openRejectDialog(id: number): void {
+  rejectTargetId.value = id
+  rejectReason.value = ''
+  rejectDialogVisible.value = true
+}
+
+async function confirmReject(): Promise<void> {
+  if (!rejectTargetId.value || !rejectReason.value.trim()) return
+  rejectingId.value = rejectTargetId.value
   try {
-    await leaveApi.reject(id)
-    pendingRequests.value = pendingRequests.value.filter((r) => r.id !== id)
+    await leaveApi.reject(rejectTargetId.value, rejectReason.value.trim())
+    pendingRequests.value = pendingRequests.value.filter((r) => r.id !== rejectTargetId.value)
+    rejectDialogVisible.value = false
     toast.add({ severity: 'success', summary: '已拒絕假單', life: 3000 })
   } catch {
     toast.add({ severity: 'error', summary: '拒絕失敗', life: 3000 })
   } finally {
     rejectingId.value = null
+  }
+}
+
+async function handleCancel(id: number): Promise<void> {
+  cancellingId.value = id
+  try {
+    await leaveApi.cancel(id)
+    const req = myRequests.value.find((r) => r.id === id)
+    if (req) req.status = 'cancelled'
+    toast.add({ severity: 'success', summary: '已取消假單', life: 3000 })
+  } catch {
+    toast.add({ severity: 'error', summary: '取消失敗', life: 3000 })
+  } finally {
+    cancellingId.value = null
   }
 }
 
@@ -339,9 +386,7 @@ onMounted(() => {
   color: #6b7280;
 }
 
-.error-state {
-  color: #dc2626;
-}
+.error-state { color: #dc2626; }
 
 .empty-state {
   flex-direction: column;
@@ -358,4 +403,26 @@ onMounted(() => {
   text-overflow: ellipsis;
   max-width: 200px;
 }
+
+.reject-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.reject-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.reject-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.required { color: #ef4444; }
 </style>
