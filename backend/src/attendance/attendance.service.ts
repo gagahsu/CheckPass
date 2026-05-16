@@ -25,14 +25,14 @@ const GRACE_MINUTES = 5;
 /** Speed threshold km/h — above this the check-in is flagged as suspicious. */
 const MAX_SPEED_KMH = 300;
 
-interface PaginatedResult<T> {
+export interface PaginatedResult<T> {
   data: T[];
   total: number;
   page: number;
   limit: number;
 }
 
-interface DepartmentSummary {
+export interface DepartmentSummary {
   date: string;
   totalEmployees: number;
   presentCount: number;

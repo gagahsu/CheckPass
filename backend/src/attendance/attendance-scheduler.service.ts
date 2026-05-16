@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AttendanceService } from './attendance.service';
-import { ShiftSchedule } from '../shift/entities/shift-schedule.entity';
+import { ShiftSchedule, ScheduleStatus } from '../shift/entities/shift-schedule.entity';
 
 @Injectable()
 export class AttendanceSchedulerService {
@@ -29,7 +29,7 @@ export class AttendanceSchedulerService {
     const schedules = await this.shiftScheduleRepo.find({
       where: {
         date: today as unknown as string,
-        status: 'published',
+        status: ScheduleStatus.PUBLISHED,
       },
     });
 
