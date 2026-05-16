@@ -7,6 +7,7 @@ import { ShiftModule } from './shift/shift.module';
 import { LeaveModule } from './leave/leave.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { SseModule } from './sse/sse.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { SseModule } from './sse/sse.module';
     LeaveModule,
     PayrollModule,
     SseModule,
+    NotificationModule,
   ],
 })
 export class AppModule {}

@@ -1,32 +1,35 @@
 import apiClient from './index'
 import type {
   CheckInPayload,
-  CheckInResponse,
+  AttendanceRecord,
   CheckOutPayload,
   RecordQuery,
-  AttendanceRecord,
   DepartmentSummary,
-  PagedResponse
+  PagedResponse,
 } from '@/types'
 
 export const attendanceApi = {
-  checkIn(data: CheckInPayload): Promise<CheckInResponse> {
-    return apiClient.post<CheckInResponse>('/api/attendance/check-in', data).then((r) => r.data)
+  checkIn(data: CheckInPayload): Promise<AttendanceRecord> {
+    return apiClient.post<AttendanceRecord>('/attendance/check-in', data).then((r) => r.data)
   },
 
-  checkOut(data: CheckOutPayload): Promise<void> {
-    return apiClient.post('/api/attendance/check-out', data).then(() => undefined)
+  checkOut(data: CheckOutPayload): Promise<AttendanceRecord> {
+    return apiClient.post<AttendanceRecord>('/attendance/check-out', data).then((r) => r.data)
+  },
+
+  getToday(): Promise<AttendanceRecord | null> {
+    return apiClient.get<AttendanceRecord | null>('/attendance/today').then((r) => r.data)
   },
 
   getRecords(params: RecordQuery): Promise<PagedResponse<AttendanceRecord>> {
     return apiClient
-      .get<PagedResponse<AttendanceRecord>>('/api/attendance/records', { params })
+      .get<PagedResponse<AttendanceRecord>>('/attendance/records', { params })
       .then((r) => r.data)
   },
 
   getDepartmentSummary(date: string): Promise<DepartmentSummary[]> {
     return apiClient
-      .get<DepartmentSummary[]>('/api/attendance/department-summary', { params: { date } })
+      .get<DepartmentSummary[]>('/attendance/department-summary', { params: { date } })
       .then((r) => r.data)
-  }
+  },
 }

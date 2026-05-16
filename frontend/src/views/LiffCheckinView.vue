@@ -42,20 +42,20 @@
         <!-- Action Buttons -->
         <div class="action-buttons">
           <Button
-            label="上班打卡"
+            :label="todayCheckedIn ? `已打卡 ${todayCheckInTime}` : '上班打卡'"
             icon="pi pi-sign-in"
             class="checkin-btn"
             :loading="checkingIn"
-            :disabled="!coords || checkingIn || checkingOut"
+            :disabled="!coords || checkingIn || checkingOut || todayCheckedIn"
             @click="handleCheckIn"
           />
           <Button
-            label="下班打卡"
+            :label="todayCheckedOut ? '已下班打卡' : '下班打卡'"
             icon="pi pi-sign-out"
             class="checkout-btn"
             severity="secondary"
             :loading="checkingOut"
-            :disabled="!coords || checkingIn || checkingOut"
+            :disabled="!coords || checkingIn || checkingOut || !todayCheckedIn || todayCheckedOut"
             @click="handleCheckOut"
           />
         </div>
@@ -88,6 +88,9 @@ const checkingIn = ref(false)
 const checkingOut = ref(false)
 const successMessage = ref<string | null>(null)
 const errorMessage = ref<string | null>(null)
+const todayCheckedIn = ref(false)
+const todayCheckedOut = ref(false)
+const todayCheckInTime = ref<string | null>(null)
 
 let clockTimer: ReturnType<typeof setInterval> | null = null
 let watchId: number | null = null
@@ -149,6 +152,19 @@ function startGps(): void {
   )
 }
 
+async function loadTodayStatus(): Promise<void> {
+  try {
+    const record = await attendanceApi.getToday()
+    if (record) {
+      todayCheckedIn.value = true
+      todayCheckInTime.value = new Date(record.checkInTime).toLocaleTimeString('zh-TW')
+      todayCheckedOut.value = !!record.checkOutTime
+    }
+  } catch {
+    // ignore — user may not be logged in via LIFF yet
+  }
+}
+
 async function handleCheckIn(): Promise<void> {
   if (!coords.value) return
   checkingIn.value = true
@@ -156,15 +172,19 @@ async function handleCheckIn(): Promise<void> {
   successMessage.value = null
   try {
     const result = await attendanceApi.checkIn({
+      type: 'GPS',
       latitude: coords.value.latitude,
       longitude: coords.value.longitude,
-      deviceInfo: navigator.userAgent
+      device: navigator.userAgent,
     })
-    successMessage.value = `上班打卡成功！時間：${new Date(result.checkInTime).toLocaleTimeString('zh-TW')}`
+    todayCheckedIn.value = true
+    todayCheckInTime.value = new Date(result.checkInTime).toLocaleTimeString('zh-TW')
+    successMessage.value = `上班打卡成功！${todayCheckInTime.value}`
     toast.add({ severity: 'success', summary: '打卡成功', detail: successMessage.value, life: 4000 })
-  } catch {
-    errorMessage.value = '打卡失敗，請稍後再試'
-    toast.add({ severity: 'error', summary: '打卡失敗', detail: errorMessage.value, life: 4000 })
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '打卡失敗，請稍後再試'
+    errorMessage.value = msg
+    toast.add({ severity: 'error', summary: '打卡失敗', detail: msg, life: 4000 })
   } finally {
     checkingIn.value = false
   }
@@ -176,16 +196,19 @@ async function handleCheckOut(): Promise<void> {
   errorMessage.value = null
   successMessage.value = null
   try {
-    await attendanceApi.checkOut({
+    const result = await attendanceApi.checkOut({
       latitude: coords.value.latitude,
       longitude: coords.value.longitude,
-      deviceInfo: navigator.userAgent
     })
-    successMessage.value = `下班打卡成功！時間：${new Date().toLocaleTimeString('zh-TW')}`
+    todayCheckedOut.value = true
+    const timeStr = new Date(result.checkOutTime).toLocaleTimeString('zh-TW')
+    const overtime = result.overtimeHours > 0 ? `，加班 ${result.overtimeHours}h` : ''
+    successMessage.value = `下班打卡成功！${timeStr}${overtime}`
     toast.add({ severity: 'success', summary: '打卡成功', detail: successMessage.value, life: 4000 })
-  } catch {
-    errorMessage.value = '下班打卡失敗，請稍後再試'
-    toast.add({ severity: 'error', summary: '打卡失敗', detail: errorMessage.value, life: 4000 })
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '下班打卡失敗，請稍後再試'
+    errorMessage.value = msg
+    toast.add({ severity: 'error', summary: '打卡失敗', detail: msg, life: 4000 })
   } finally {
     checkingOut.value = false
   }
@@ -195,6 +218,7 @@ onMounted(() => {
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
   startGps()
+  void loadTodayStatus()
 })
 
 onUnmounted(() => {

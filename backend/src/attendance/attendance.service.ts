@@ -3,7 +3,6 @@ import {
   BadRequestException,
   NotFoundException,
   Logger,
-  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindManyOptions } from 'typeorm';
@@ -12,20 +11,18 @@ import {
   AttendanceStatus,
   CheckInType,
 } from './entities/attendance-record.entity';
-import {
-  CheckInDto,
-  CheckOutDto,
-  AttendanceQueryDto,
-} from './dto/check-in.dto';
+import { WorkplaceSetting } from './entities/workplace-setting.entity';
+import { CheckInDto, CheckOutDto, AttendanceQueryDto } from './dto/check-in.dto';
+import { NotificationService } from '../notification/notification.service';
+import { SseService } from '../sse/sse.service';
+import { Employee } from '../auth/entities/employee.entity';
+import { ShiftSchedule } from '../shift/entities/shift-schedule.entity';
 
-/** Maximum allowed distance from the workplace for GPS check-in (metres). */
-const GPS_MAX_DISTANCE_METERS = 200;
-
-/** Grace period in minutes before a check-in is considered late. */
+/** Grace period in minutes before a check-in is flagged as late. */
 const GRACE_MINUTES = 5;
 
-/** Overtime threshold: minutes beyond shift end before counting overtime. */
-const OVERTIME_THRESHOLD_MINUTES = 0;
+/** Speed threshold km/h — above this the check-in is flagged as suspicious. */
+const MAX_SPEED_KMH = 300;
 
 interface PaginatedResult<T> {
   data: T[];
@@ -50,51 +47,42 @@ export class AttendanceService {
   constructor(
     @InjectRepository(AttendanceRecord)
     private readonly attendanceRepo: Repository<AttendanceRecord>,
+    @InjectRepository(WorkplaceSetting)
+    private readonly workplaceRepo: Repository<WorkplaceSetting>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+    @InjectRepository(ShiftSchedule)
+    private readonly shiftScheduleRepo: Repository<ShiftSchedule>,
+    private readonly notificationService: NotificationService,
+    private readonly sseService: SseService,
   ) {}
 
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Record an employee check-in.
-   * For GPS type, validates that the employee is within the allowed radius of
-   * the configured workplace coordinates.
-   */
-  async checkIn(
-    employeeId: number,
-    dto: CheckInDto,
-  ): Promise<AttendanceRecord> {
-    // Prevent double check-in: look for an open record today
+  async checkIn(employeeId: number, dto: CheckInDto): Promise<AttendanceRecord> {
     const todayStart = this.startOfDay(new Date());
     const todayEnd = this.endOfDay(new Date());
 
+    // Prevent duplicate check-in
     const existing = await this.attendanceRepo.findOne({
-      where: {
-        employeeId,
-        checkInTime: Between(todayStart, todayEnd),
-      },
+      where: { employeeId, checkInTime: Between(todayStart, todayEnd) },
     });
-
     if (existing) {
-      throw new BadRequestException(
-        'You have already checked in today. Please check out first.',
-      );
+      throw new BadRequestException('今日已打過上班卡，請先打下班卡。');
     }
 
+    const now = new Date();
     let distanceMeters: number | null = null;
+    let workplaceLat: number | null = null;
+    let workplaceLon: number | null = null;
 
+    // GPS validation
     if (dto.type === CheckInType.GPS) {
       if (dto.latitude == null || dto.longitude == null) {
-        throw new BadRequestException(
-          'GPS check-in requires latitude and longitude.',
-        );
+        throw new BadRequestException('GPS 打卡需要提供座標。');
       }
 
-      // Phase-0: workplace coordinates are hard-coded or fetched from config.
-      // Phase 1 will look them up from the shift schedule / store settings.
-      const workplaceLat = 25.033964;
-      const workplaceLon = 121.564468;
+      const workplace = await this.resolveWorkplace(dto.shiftScheduleId);
+      workplaceLat = Number(workplace.latitude);
+      workplaceLon = Number(workplace.longitude);
 
       distanceMeters = this.haversineDistance(
         dto.latitude,
@@ -103,15 +91,36 @@ export class AttendanceService {
         workplaceLon,
       );
 
-      if (distanceMeters > GPS_MAX_DISTANCE_METERS) {
+      if (distanceMeters > workplace.gpsRadiusMeters) {
         throw new BadRequestException(
-          `You are too far from the workplace. ` +
-            `Distance: ${Math.round(distanceMeters)} m, max allowed: ${GPS_MAX_DISTANCE_METERS} m.`,
+          `距離工作地點太遠（${Math.round(distanceMeters)} 公尺），允許範圍 ${workplace.gpsRadiusMeters} 公尺。`,
         );
       }
     }
 
-    const now = new Date();
+    // WiFi validation
+    if (dto.type === CheckInType.WIFI) {
+      if (!dto.wifiSsid) {
+        throw new BadRequestException('WiFi 打卡需要提供 SSID。');
+      }
+      const workplace = await this.resolveWorkplace(dto.shiftScheduleId);
+      const allowed = workplace.getAllowedSsids();
+      if (allowed.length > 0 && !allowed.includes(dto.wifiSsid)) {
+        throw new BadRequestException(`WiFi「${dto.wifiSsid}」不在允許的打卡網路清單中。`);
+      }
+    }
+
+    // Speed anomaly: check last check-out location
+    if (dto.latitude != null && dto.longitude != null) {
+      await this.checkSpeedAnomaly(employeeId, dto.latitude, dto.longitude, now);
+    }
+
+    // Tardiness calculation from shift schedule
+    const { lateMinutes, status } = await this.calcLateMinutes(
+      employeeId,
+      now,
+      dto.shiftScheduleId,
+    );
 
     const record = this.attendanceRepo.create({
       employeeId,
@@ -120,85 +129,64 @@ export class AttendanceService {
       checkInTime: now,
       latitude: dto.latitude ?? null,
       longitude: dto.longitude ?? null,
+      workplaceLatitude: workplaceLat,
+      workplaceLongitude: workplaceLon,
       distanceMeters,
       device: dto.device ?? null,
       note: dto.note ?? null,
-      lateMinutes: 0, // Will be recalculated when shift info is available
+      lateMinutes,
       overtimeHours: 0,
-      status: AttendanceStatus.ON_TIME,
+      status,
     });
 
     const saved = await this.attendanceRepo.save(record);
-    this.logger.log(`Employee ${employeeId} checked in at ${now.toISOString()}`);
+    this.logger.log(`Employee ${employeeId} checked in — status: ${status}, late: ${lateMinutes}m`);
+
+    // Async: LINE notification + SSE push (don't block response)
+    void this.afterCheckIn(employeeId, saved);
+
     return saved;
   }
 
-  /**
-   * Record an employee check-out and calculate overtime.
-   * Finds the most recent open (no check_out_time) record for the employee today.
-   */
-  async checkOut(
-    employeeId: number,
-    dto: CheckOutDto,
-  ): Promise<AttendanceRecord> {
+  async checkOut(employeeId: number, dto: CheckOutDto): Promise<AttendanceRecord> {
     const todayStart = this.startOfDay(new Date());
     const todayEnd = this.endOfDay(new Date());
 
     const record = await this.attendanceRepo.findOne({
-      where: {
-        employeeId,
-        checkInTime: Between(todayStart, todayEnd),
-      },
+      where: { employeeId, checkInTime: Between(todayStart, todayEnd) },
       order: { checkInTime: 'DESC' },
     });
 
     if (!record) {
-      throw new NotFoundException(
-        'No check-in record found for today. Please check in first.',
-      );
+      throw new NotFoundException('今日尚未打上班卡。');
     }
-
     if (record.checkOutTime) {
-      throw new BadRequestException('You have already checked out today.');
+      throw new BadRequestException('今日已打過下班卡。');
     }
 
     const now = new Date();
     record.checkOutTime = now;
 
-    // Update location if provided at check-out
-    if (dto.latitude != null) {
-      record.latitude = dto.latitude;
-    }
-    if (dto.longitude != null) {
-      record.longitude = dto.longitude;
-    }
-    if (dto.note) {
-      record.note = dto.note;
-    }
+    if (dto.latitude != null) record.latitude = dto.latitude;
+    if (dto.longitude != null) record.longitude = dto.longitude;
+    if (dto.note) record.note = dto.note;
 
-    // Calculate overtime hours (Phase-0: assumes 8-hour standard shift)
-    if (record.checkInTime) {
-      const workedMs = now.getTime() - record.checkInTime.getTime();
-      const workedMinutes = Math.floor(workedMs / 60_000);
-      const standardMinutes = 8 * 60; // 480 minutes
-      const extraMinutes = workedMinutes - standardMinutes;
+    // Overtime: use actual shift end time when available
+    const overtimeHours = await this.calcOvertimeHours(record, now);
+    record.overtimeHours = overtimeHours;
 
-      if (extraMinutes > OVERTIME_THRESHOLD_MINUTES) {
-        record.overtimeHours = parseFloat((extraMinutes / 60).toFixed(2));
-        record.status = AttendanceStatus.OVERTIME;
-      }
+    if (overtimeHours > 0 && record.status === AttendanceStatus.ON_TIME) {
+      record.status = AttendanceStatus.OVERTIME;
     }
 
     const saved = await this.attendanceRepo.save(record);
-    this.logger.log(
-      `Employee ${employeeId} checked out at ${now.toISOString()}, overtime: ${saved.overtimeHours}h`,
-    );
+    this.logger.log(`Employee ${employeeId} checked out — overtime: ${overtimeHours}h`);
+
+    void this.afterCheckOut(employeeId, saved);
+
     return saved;
   }
 
-  /**
-   * Retrieve paginated attendance records for the given employee.
-   */
   async getRecords(
     employeeId: number,
     query: AttendanceQueryDto,
@@ -225,17 +213,19 @@ export class AttendanceService {
     return { data, total, page, limit };
   }
 
-  /**
-   * Return a daily attendance summary for a manager's department.
-   * Phase-0: returns all records for the given date regardless of department
-   * (department filtering will be added once the HR module is wired up).
-   */
-  async getDepartmentSummary(
-    managerId: number,
-    date: string,
-  ): Promise<DepartmentSummary> {
+  async getTodayRecord(employeeId: number): Promise<AttendanceRecord | null> {
+    return this.attendanceRepo.findOne({
+      where: {
+        employeeId,
+        checkInTime: Between(this.startOfDay(new Date()), this.endOfDay(new Date())),
+      },
+      order: { checkInTime: 'DESC' },
+    });
+  }
+
+  async getDepartmentSummary(managerId: number, date: string): Promise<DepartmentSummary> {
     if (!date) {
-      throw new BadRequestException('date query parameter is required (YYYY-MM-DD)');
+      throw new BadRequestException('date 參數為必填（YYYY-MM-DD）。');
     }
 
     const dayStart = new Date(`${date}T00:00:00`);
@@ -246,31 +236,33 @@ export class AttendanceService {
       order: { employeeId: 'ASC', checkInTime: 'ASC' },
     });
 
-    const presentCount = records.length;
-    const lateCount = records.filter((r) => r.lateMinutes > GRACE_MINUTES).length;
+    // Enrich records with employee names
+    const employeeIds = [...new Set(records.map((r) => r.employeeId))];
+    const employees = employeeIds.length
+      ? await this.employeeRepo.findByIds(employeeIds)
+      : [];
+    const empMap = new Map(employees.map((e) => [e.id, e]));
 
-    // Phase-0: totalEmployees comes from the count of distinct employees in records.
-    const uniqueEmployees = new Set(records.map((r) => r.employeeId)).size;
+    const enriched = records.map((r) => ({
+      id: r.id,
+      employeeId: r.employeeId,
+      employeeName: empMap.get(r.employeeId)?.name ?? '—',
+      checkInTime: r.checkInTime,
+      checkOutTime: r.checkOutTime,
+      status: r.status,
+      lateMinutes: r.lateMinutes,
+      overtimeHours: r.overtimeHours,
+    }));
 
-    this.logger.log(
-      `Manager ${managerId} requested department summary for ${date}`,
-    );
+    this.logger.log(`Manager ${managerId} fetched department summary for ${date}`);
 
     return {
       date,
-      totalEmployees: uniqueEmployees,
-      presentCount,
-      absentCount: 0, // Phase-0: absent calculation requires HR roster
-      lateCount,
-      records: records.map((r) => ({
-        id: r.id,
-        employeeId: r.employeeId,
-        checkInTime: r.checkInTime,
-        checkOutTime: r.checkOutTime,
-        status: r.status,
-        lateMinutes: r.lateMinutes,
-        overtimeHours: r.overtimeHours,
-      })),
+      totalEmployees: employeeIds.length,
+      presentCount: records.length,
+      absentCount: 0,
+      lateCount: records.filter((r) => r.lateMinutes > GRACE_MINUTES).length,
+      records: enriched,
     };
   }
 
@@ -278,29 +270,185 @@ export class AttendanceService {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /**
-   * Haversine formula — calculate the great-circle distance between two points
-   * on Earth given their latitude/longitude in decimal degrees.
-   * Returns distance in metres.
-   */
-  private haversineDistance(
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number,
-  ): number {
-    const R = 6_371_000; // Earth radius in metres
-    const toRad = (deg: number): number => (deg * Math.PI) / 180;
+  private async resolveWorkplace(shiftScheduleId?: number): Promise<WorkplaceSetting> {
+    // TODO Phase 2: look up storeId from shift schedule
+    const workplace = await this.workplaceRepo.findOne({
+      where: { isActive: true },
+      order: { id: 'ASC' },
+    });
+    if (!workplace) {
+      throw new BadRequestException('尚未設定打卡地點，請聯絡管理員。');
+    }
+    return workplace;
+  }
 
+  private async calcLateMinutes(
+    employeeId: number,
+    checkInTime: Date,
+    shiftScheduleId?: number,
+  ): Promise<{ lateMinutes: number; status: AttendanceStatus }> {
+    if (!shiftScheduleId) {
+      return { lateMinutes: 0, status: AttendanceStatus.ON_TIME };
+    }
+
+    const schedule = await this.shiftScheduleRepo.findOne({
+      where: { id: shiftScheduleId },
+      relations: ['shiftType'],
+    });
+
+    if (!schedule?.shiftType) {
+      return { lateMinutes: 0, status: AttendanceStatus.ON_TIME };
+    }
+
+    const [startHour, startMin] = schedule.shiftType.startTime.split(':').map(Number);
+    const shiftStart = new Date(checkInTime);
+    shiftStart.setHours(startHour, startMin, 0, 0);
+
+    const diffMinutes = Math.floor((checkInTime.getTime() - shiftStart.getTime()) / 60_000);
+    const lateMinutes = Math.max(0, diffMinutes);
+    const status =
+      lateMinutes > GRACE_MINUTES ? AttendanceStatus.LATE : AttendanceStatus.ON_TIME;
+
+    return { lateMinutes, status };
+  }
+
+  private async calcOvertimeHours(record: AttendanceRecord, checkOutTime: Date): Promise<number> {
+    if (!record.checkInTime) return 0;
+
+    if (record.shiftScheduleId) {
+      const schedule = await this.shiftScheduleRepo.findOne({
+        where: { id: record.shiftScheduleId },
+        relations: ['shiftType'],
+      });
+
+      if (schedule?.shiftType) {
+        const [endHour, endMin] = schedule.shiftType.endTime.split(':').map(Number);
+        const shiftEnd = new Date(checkOutTime);
+        shiftEnd.setHours(endHour, endMin, 0, 0);
+
+        const extraMs = checkOutTime.getTime() - shiftEnd.getTime();
+        if (extraMs > 0) {
+          return parseFloat((extraMs / 3_600_000).toFixed(2));
+        }
+        return 0;
+      }
+    }
+
+    // Fallback: 8-hour standard shift
+    const workedMs = checkOutTime.getTime() - record.checkInTime.getTime();
+    const extraMs = workedMs - 8 * 3_600_000;
+    return extraMs > 0 ? parseFloat((extraMs / 3_600_000).toFixed(2)) : 0;
+  }
+
+  private async checkSpeedAnomaly(
+    employeeId: number,
+    lat: number,
+    lon: number,
+    now: Date,
+  ): Promise<void> {
+    const lastRecord = await this.attendanceRepo.findOne({
+      where: { employeeId },
+      order: { checkInTime: 'DESC' },
+    });
+
+    if (
+      !lastRecord?.checkOutTime ||
+      lastRecord.latitude == null ||
+      lastRecord.longitude == null
+    ) {
+      return;
+    }
+
+    const distM = this.haversineDistance(
+      lat,
+      lon,
+      Number(lastRecord.latitude),
+      Number(lastRecord.longitude),
+    );
+
+    const elapsedHours =
+      (now.getTime() - lastRecord.checkOutTime.getTime()) / 3_600_000;
+
+    if (elapsedHours > 0) {
+      const speedKmh = distM / 1000 / elapsedHours;
+      if (speedKmh > MAX_SPEED_KMH) {
+        this.logger.warn(
+          `Speed anomaly: employee ${employeeId} moved ${Math.round(distM)}m ` +
+          `in ${(elapsedHours * 60).toFixed(1)}min (${Math.round(speedKmh)} km/h)`,
+        );
+        // Flag as suspicious note — don't block check-in
+      }
+    }
+  }
+
+  private async afterCheckIn(employeeId: number, record: AttendanceRecord): Promise<void> {
+    try {
+      const employee = await this.employeeRepo.findOne({ where: { id: employeeId } });
+      if (!employee) return;
+
+      // LINE push to employee
+      if (employee.lineUserId) {
+        const msg = this.notificationService.buildCheckInMessage(
+          employee.name,
+          record.checkInTime!,
+          record.status,
+        );
+        await this.notificationService.sendLinePush(employee.lineUserId, msg);
+      }
+
+      // SSE push to HR/manager dashboards
+      this.sseService.sendToAll({
+        type: 'check-in',
+        data: {
+          employeeId,
+          employeeName: employee.name,
+          checkInTime: record.checkInTime,
+          status: record.status,
+          lateMinutes: record.lateMinutes,
+        },
+      });
+    } catch (err) {
+      this.logger.error('afterCheckIn notification failed', err);
+    }
+  }
+
+  private async afterCheckOut(employeeId: number, record: AttendanceRecord): Promise<void> {
+    try {
+      const employee = await this.employeeRepo.findOne({ where: { id: employeeId } });
+      if (!employee) return;
+
+      if (employee.lineUserId) {
+        const msg = this.notificationService.buildCheckOutMessage(
+          employee.name,
+          record.checkOutTime!,
+          record.overtimeHours,
+        );
+        await this.notificationService.sendLinePush(employee.lineUserId, msg);
+      }
+
+      this.sseService.sendToAll({
+        type: 'check-out',
+        data: {
+          employeeId,
+          employeeName: employee.name,
+          checkOutTime: record.checkOutTime,
+          overtimeHours: record.overtimeHours,
+        },
+      });
+    } catch (err) {
+      this.logger.error('afterCheckOut notification failed', err);
+    }
+  }
+
+  private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6_371_000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
-
     const a =
       Math.sin(dLat / 2) ** 2 +
       Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   private startOfDay(date: Date): Date {
