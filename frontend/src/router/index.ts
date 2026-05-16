@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { pinia } from '@/stores/pinia'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -104,7 +105,7 @@ router.beforeEach((to) => {
   // Update page title
   document.title = (to.meta.title as string) ?? 'CheckPass 打卡通'
 
-  const authStore = useAuthStore()
+  const authStore = useAuthStore(pinia)
   authStore.initFromStorage()
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
