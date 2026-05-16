@@ -1,5 +1,5 @@
 import apiClient from './index'
-import type { LeaveRequest, LeaveApplyPayload, LeaveType } from '@/types'
+import type { LeaveRequest, LeaveApplyPayload, LeaveType, LeaveBalance } from '@/types'
 
 export const leaveApi = {
   getLeaveTypes(): Promise<LeaveType[]> {
@@ -28,5 +28,19 @@ export const leaveApi = {
 
   cancel(id: number): Promise<LeaveRequest> {
     return apiClient.patch<LeaveRequest>(`/leave/${id}/cancel`).then((r) => r.data)
+  },
+
+  getBalance(): Promise<LeaveBalance[]> {
+    return apiClient.get<LeaveBalance[]>('/leave/balance').then((r) => r.data)
+  },
+
+  uploadAttachment(file: File): Promise<{ url: string }> {
+    const fd = new FormData()
+    fd.append('file', file)
+    return apiClient
+      .post<{ url: string }>('/leave/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
   },
 }

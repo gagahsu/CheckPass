@@ -23,4 +23,10 @@ export const payrollApi = {
   confirm(payrollId: number): Promise<Payroll> {
     return apiClient.post<Payroll>(`/payroll/${payrollId}/confirm`).then((r) => r.data)
   },
+
+  batchNotify(year: number, month: number): Promise<{ notified: number }> {
+    return apiClient
+      .post<{ notified: number }>('/payroll/batch-notify', { year, month })
+      .then((r) => r.data)
+  },
 }

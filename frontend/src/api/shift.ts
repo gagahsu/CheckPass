@@ -49,4 +49,10 @@ export const shiftApi = {
       .post('/shifts/schedule/publish', { storeId, weekStart })
       .then(() => undefined)
   },
+
+  getMonthSchedule(storeId: number, year: number, month: number): Promise<ScheduleEntry[]> {
+    return apiClient
+      .get<ScheduleEntry[]>('/shifts/schedule/month', { params: { storeId, year, month } })
+      .then((r) => r.data)
+  },
 }

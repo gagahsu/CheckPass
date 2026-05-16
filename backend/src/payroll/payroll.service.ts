@@ -185,6 +185,22 @@ export class PayrollService {
   }
 
   /**
+   * Send payroll notifications to all employees with confirmed payrolls for the period.
+   */
+  async batchNotify(year: number, month: number): Promise<{ notified: number }> {
+    const payrolls = await this.payrollRepo.find({
+      where: { year, month, status: PayrollStatus.CONFIRMED },
+    });
+    let notified = 0;
+    for (const payroll of payrolls) {
+      await this.afterConfirm(payroll).catch(() => {});
+      notified++;
+    }
+    this.logger.log(`Batch notify: sent payroll notifications for ${notified} employees (${year}/${month})`);
+    return { notified };
+  }
+
+  /**
    * List all payroll records for a given year/month (HR view).
    */
   async listPayrolls(year: number, month: number): Promise<Payroll[]> {

@@ -10,6 +10,24 @@
           />
         </div>
         <div class="header-right">
+          <!-- Store selector -->
+          <select v-model="storeId" class="p-inputtext store-select" @change="onStoreChange">
+            <option v-for="wp in workplaces" :key="wp.id" :value="wp.id">{{ wp.name }}</option>
+            <option v-if="workplaces.length === 0" :value="1">預設門市</option>
+          </select>
+          <!-- View toggle -->
+          <div class="view-toggle">
+            <button
+              class="toggle-btn"
+              :class="{ active: viewMode === 'week' }"
+              @click="setView('week')"
+            >週</button>
+            <button
+              class="toggle-btn"
+              :class="{ active: viewMode === 'month' }"
+              @click="setView('month')"
+            >月</button>
+          </div>
           <Button
             v-if="canManage"
             label="新增班別"
@@ -18,7 +36,7 @@
             @click="openAddShiftType"
           />
           <Button
-            v-if="canManage"
+            v-if="canManage && viewMode === 'week'"
             label="發布班表"
             icon="pi pi-send"
             :loading="publishing"
@@ -45,7 +63,7 @@
                 :key="st.id"
                 class="shift-type-item"
                 :style="{ borderLeft: `4px solid ${st.color}` }"
-                :draggable="canManage"
+                :draggable="canManage && viewMode === 'week'"
                 @dragstart="onShiftTypeDragStart(st)"
               >
                 <div class="shift-type-name">{{ st.name }}</div>
@@ -60,9 +78,9 @@
         <Card class="calendar-card">
           <template #title>
             <div class="calendar-nav">
-              <Button icon="pi pi-chevron-left" severity="secondary" text @click="prevWeek" />
-              <span class="week-label">{{ weekLabel }}</span>
-              <Button icon="pi pi-chevron-right" severity="secondary" text @click="nextWeek" />
+              <Button icon="pi pi-chevron-left" severity="secondary" text @click="prevPeriod" />
+              <span class="week-label">{{ periodLabel }}</span>
+              <Button icon="pi pi-chevron-right" severity="secondary" text @click="nextPeriod" />
             </div>
           </template>
           <template #content>
@@ -70,8 +88,9 @@
               <i class="pi pi-spin pi-spinner"></i>
               <span>載入中...</span>
             </div>
-            <div v-else class="week-calendar">
-              <!-- Header -->
+
+            <!-- Week View -->
+            <div v-else-if="viewMode === 'week'" class="week-calendar">
               <div class="cal-header">
                 <div class="cal-cell cal-empty"></div>
                 <div v-for="day in weekDays" :key="day.iso" class="cal-cell cal-day-header">
@@ -79,8 +98,6 @@
                   <div class="day-date" :class="{ today: day.isToday }">{{ day.date }}</div>
                 </div>
               </div>
-
-              <!-- Employee rows -->
               <div v-if="allEmployees.length === 0" class="empty-cal">
                 <p>無員工資料</p>
               </div>
@@ -110,12 +127,52 @@
                   </div>
                 </div>
               </div>
+              <p v-if="canManage" class="drag-hint">
+                <i class="pi pi-info-circle"></i>
+                將左側班別拖放到格子中排班，點擊格子中的班別可移除
+              </p>
             </div>
 
-            <p v-if="canManage" class="drag-hint">
-              <i class="pi pi-info-circle"></i>
-              將左側班別拖放到格子中排班，點擊格子中的班別可移除
-            </p>
+            <!-- Month View -->
+            <div v-else class="month-calendar">
+              <div class="month-header">
+                <div class="month-cell month-label-cell">員工</div>
+                <div
+                  v-for="day in monthDays"
+                  :key="day.iso"
+                  class="month-cell month-day-header"
+                  :class="{ today: day.isToday, weekend: day.isWeekend }"
+                >
+                  <div class="day-num">{{ day.dayNum }}</div>
+                  <div class="day-wd">{{ day.weekday }}</div>
+                </div>
+              </div>
+              <div v-if="allEmployees.length === 0" class="empty-cal">
+                <p>無員工資料</p>
+              </div>
+              <div v-for="emp in allEmployees" :key="emp.id" class="month-row">
+                <div class="month-cell month-emp-cell">
+                  <Avatar :label="emp.name.charAt(0)" size="small" shape="circle" />
+                  <span>{{ emp.name }}</span>
+                </div>
+                <div
+                  v-for="day in monthDays"
+                  :key="day.iso"
+                  class="month-cell month-day-cell"
+                  :class="{ weekend: day.isWeekend }"
+                >
+                  <div
+                    v-for="entry in getEntries(emp.id, day.iso)"
+                    :key="entry.id"
+                    class="month-event"
+                    :style="{ background: entry.shiftType?.color ?? '#06b6d4' }"
+                    :title="entry.shiftType?.name"
+                  >
+                    {{ entry.shiftType?.name ?? '?' }}
+                  </div>
+                </div>
+              </div>
+            </div>
           </template>
         </Card>
       </div>
@@ -187,7 +244,8 @@ import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import { shiftApi } from '@/api/shift'
 import { hrApi } from '@/api/hr'
-import type { ShiftType, ScheduleEntry, ScheduleStatus, Employee } from '@/types'
+import { attendanceApi } from '@/api/attendance'
+import type { ShiftType, ScheduleEntry, ScheduleStatus, Employee, WorkplaceSetting } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
 
@@ -198,8 +256,13 @@ const canManage = computed(
   () => authStore.hasRole('manager') || authStore.hasRole('hr') || authStore.hasRole('admin'),
 )
 
+const workplaces = ref<WorkplaceSetting[]>([])
 const storeId = ref(1)
+const viewMode = ref<'week' | 'month'>('week')
 const weekStart = ref(getMonday(new Date()))
+const monthYear = ref(new Date().getFullYear())
+const monthMonth = ref(new Date().getMonth() + 1)
+
 const shiftTypes = ref<ShiftType[]>([])
 const scheduleEntries = ref<ScheduleEntry[]>([])
 const allEmployees = ref<Employee[]>([])
@@ -252,28 +315,82 @@ const weekDays = computed(() => {
   return days
 })
 
-const weekLabel = computed(() => {
-  const start = new Date(weekStart.value + 'T00:00:00')
-  const end = new Date(start)
-  end.setDate(end.getDate() + 6)
-  return `${start.getMonth() + 1}/${start.getDate()} – ${end.getMonth() + 1}/${end.getDate()}`
+const monthDays = computed(() => {
+  const days = []
+  const weekdayNames = ['日', '一', '二', '三', '四', '五', '六']
+  const today = new Date().toISOString().split('T')[0]
+  const daysInMonth = new Date(monthYear.value, monthMonth.value, 0).getDate()
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateObj = new Date(monthYear.value, monthMonth.value - 1, d)
+    const iso = dateObj.toISOString().split('T')[0]
+    const dow = dateObj.getDay()
+    days.push({
+      iso,
+      dayNum: d,
+      weekday: weekdayNames[dow],
+      isToday: iso === today,
+      isWeekend: dow === 0 || dow === 6,
+    })
+  }
+  return days
+})
+
+const periodLabel = computed(() => {
+  if (viewMode.value === 'week') {
+    const start = new Date(weekStart.value + 'T00:00:00')
+    const end = new Date(start)
+    end.setDate(end.getDate() + 6)
+    return `${start.getMonth() + 1}/${start.getDate()} – ${end.getMonth() + 1}/${end.getDate()}`
+  }
+  return `${monthYear.value} 年 ${monthMonth.value} 月`
 })
 
 function getEntries(empId: number, date: string): ScheduleEntry[] {
   return scheduleEntries.value.filter((e) => e.employeeId === empId && e.date === date)
 }
 
-function prevWeek(): void {
-  const d = new Date(weekStart.value + 'T00:00:00')
-  d.setDate(d.getDate() - 7)
-  weekStart.value = d.toISOString().split('T')[0]
+function prevPeriod(): void {
+  if (viewMode.value === 'week') {
+    const d = new Date(weekStart.value + 'T00:00:00')
+    d.setDate(d.getDate() - 7)
+    weekStart.value = d.toISOString().split('T')[0]
+    loadSchedule()
+  } else {
+    if (monthMonth.value === 1) {
+      monthMonth.value = 12
+      monthYear.value--
+    } else {
+      monthMonth.value--
+    }
+    loadSchedule()
+  }
+}
+
+function nextPeriod(): void {
+  if (viewMode.value === 'week') {
+    const d = new Date(weekStart.value + 'T00:00:00')
+    d.setDate(d.getDate() + 7)
+    weekStart.value = d.toISOString().split('T')[0]
+    loadSchedule()
+  } else {
+    if (monthMonth.value === 12) {
+      monthMonth.value = 1
+      monthYear.value++
+    } else {
+      monthMonth.value++
+    }
+    loadSchedule()
+  }
+}
+
+function setView(mode: 'week' | 'month'): void {
+  if (viewMode.value === mode) return
+  viewMode.value = mode
   loadSchedule()
 }
 
-function nextWeek(): void {
-  const d = new Date(weekStart.value + 'T00:00:00')
-  d.setDate(d.getDate() + 7)
-  weekStart.value = d.toISOString().split('T')[0]
+function onStoreChange(): void {
+  loadShiftTypes()
   loadSchedule()
 }
 
@@ -293,8 +410,18 @@ async function onDrop(empId: number, date: string): Promise<void> {
     })
     scheduleEntries.value.push(entry)
     toast.add({ severity: 'success', summary: '排班成功', detail: `${date} 已排班`, life: 2000 })
-  } catch {
-    toast.add({ severity: 'error', summary: '排班失敗', detail: '請稍後再試', life: 3000 })
+  } catch (err: unknown) {
+    const e = err as { response?: { status?: number; data?: { message?: string } } }
+    if (e?.response?.status === 409) {
+      toast.add({
+        severity: 'warn',
+        summary: '排班衝突',
+        detail: '該員工在此日期有請假申請，無法排班',
+        life: 4000,
+      })
+    } else {
+      toast.add({ severity: 'error', summary: '排班失敗', detail: '請稍後再試', life: 3000 })
+    }
   }
   draggedShiftType.value = null
 }
@@ -352,6 +479,18 @@ async function handleAddShiftType(): Promise<void> {
   }
 }
 
+async function loadWorkplaces(): Promise<void> {
+  try {
+    const wps = await attendanceApi.listWorkplaces()
+    workplaces.value = wps.filter(w => w.isActive)
+    if (workplaces.value.length > 0) {
+      storeId.value = workplaces.value[0].id
+    }
+  } catch {
+    workplaces.value = []
+  }
+}
+
 async function loadShiftTypes(): Promise<void> {
   shiftTypesLoading.value = true
   try {
@@ -366,7 +505,12 @@ async function loadShiftTypes(): Promise<void> {
 async function loadSchedule(): Promise<void> {
   scheduleLoading.value = true
   try {
-    const entries = await shiftApi.getSchedule(storeId.value, weekStart.value)
+    let entries: ScheduleEntry[]
+    if (viewMode.value === 'week') {
+      entries = await shiftApi.getSchedule(storeId.value, weekStart.value)
+    } else {
+      entries = await shiftApi.getMonthSchedule(storeId.value, monthYear.value, monthMonth.value)
+    }
     scheduleEntries.value = entries
     scheduleStatus.value = entries.some((e) => e.status === 'published') ? 'published' : 'draft'
   } catch {
@@ -388,7 +532,8 @@ async function loadEmployees(): Promise<void> {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadWorkplaces()
   loadShiftTypes()
   loadSchedule()
   loadEmployees()
@@ -417,12 +562,41 @@ onMounted(() => {
 .header-right {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
 }
 
 .page-title {
   font-size: 1.5rem;
   font-weight: 700;
   color: #111827;
+}
+
+.store-select {
+  min-width: 120px;
+  font-size: 0.875rem;
+}
+
+.view-toggle {
+  display: flex;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.toggle-btn {
+  padding: 0.4rem 0.85rem;
+  background: white;
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toggle-btn.active {
+  background: #06b6d4;
+  color: white;
 }
 
 .shift-layout {
@@ -496,6 +670,7 @@ onMounted(() => {
   text-align: center;
 }
 
+/* ─── Week View ─── */
 .week-calendar {
   overflow-x: auto;
 }
@@ -590,8 +765,103 @@ onMounted(() => {
   opacity: 0.8;
 }
 
+/* ─── Month View ─── */
+.month-calendar {
+  overflow-x: auto;
+}
+
+.month-header,
+.month-row {
+  display: flex;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.month-header {
+  font-weight: 600;
+  font-size: 0.75rem;
+  background: #f9fafb;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.month-cell {
+  border-right: 1px solid #f3f4f6;
+  padding: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 48px;
+  flex-shrink: 0;
+}
+
+.month-label-cell {
+  min-width: 120px;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.month-emp-cell {
+  min-width: 120px;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  align-items: center;
+}
+
+.month-day-header {
+  min-width: 36px;
+  width: 36px;
+  justify-content: center;
+}
+
+.month-day-header.weekend {
+  background: #fef3c7;
+}
+
+.month-day-header.today {
+  background: #e0f2fe;
+}
+
+.day-num {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.day-wd {
+  font-size: 0.65rem;
+  color: #9ca3af;
+}
+
+.month-day-cell {
+  min-width: 36px;
+  width: 36px;
+  gap: 1px;
+  padding: 2px;
+}
+
+.month-day-cell.weekend {
+  background: #fafaf5;
+}
+
+.month-event {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: white;
+  padding: 1px 3px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  text-align: center;
+}
+
 .empty-cal {
-  grid-column: 1 / -1;
   text-align: center;
   padding: 3rem;
   color: #9ca3af;

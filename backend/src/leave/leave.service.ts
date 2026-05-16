@@ -67,6 +67,7 @@ export class LeaveService {
       startDate: dto.startDate,
       endDate: dto.endDate,
       reason: dto.reason ?? null,
+      attachmentUrl: dto.attachmentUrl ?? null,
       status: LeaveRequestStatus.PENDING,
       approvedBy: null,
       approvedAt: null,
@@ -166,6 +167,61 @@ export class LeaveService {
     const saved = await this.leaveRequestRepo.save(request);
     this.logger.log(`Employee #${employeeId} cancelled leave request #${requestId}`);
     return saved;
+  }
+
+  async getBalance(employeeId: number): Promise<{
+    leaveTypeId: number;
+    leaveTypeName: string;
+    code: string;
+    maxDaysPerYear: number | null;
+    usedDays: number;
+    remainingDays: number | null;
+  }[]> {
+    const leaveTypes = await this.leaveTypeRepo.find({ order: { id: 'ASC' } });
+    const currentYear = new Date().getFullYear();
+    const yearStart = `${currentYear}-01-01`;
+    const yearEnd = `${currentYear}-12-31`;
+
+    const results: {
+      leaveTypeId: number;
+      leaveTypeName: string;
+      code: string;
+      maxDaysPerYear: number | null;
+      usedDays: number;
+      remainingDays: number | null;
+    }[] = [];
+    for (const lt of leaveTypes) {
+      const requests = await this.leaveRequestRepo
+        .createQueryBuilder('lr')
+        .where('lr.employeeId = :employeeId', { employeeId })
+        .andWhere('lr.leaveTypeId = :leaveTypeId', { leaveTypeId: lt.id })
+        .andWhere('lr.status IN (:...statuses)', {
+          statuses: [
+            LeaveRequestStatus.PENDING,
+            LeaveRequestStatus.MANAGER_APPROVED,
+            LeaveRequestStatus.APPROVED,
+          ],
+        })
+        .andWhere('lr.startDate >= :yearStart', { yearStart })
+        .andWhere('lr.startDate <= :yearEnd', { yearEnd })
+        .getMany();
+
+      const usedDays = requests.reduce((sum, r) => {
+        const start = new Date(r.startDate);
+        const end = new Date(r.endDate);
+        return sum + Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1;
+      }, 0);
+
+      results.push({
+        leaveTypeId: Number(lt.id),
+        leaveTypeName: lt.name,
+        code: lt.code,
+        maxDaysPerYear: lt.maxDaysPerYear,
+        usedDays,
+        remainingDays: lt.maxDaysPerYear != null ? Math.max(0, lt.maxDaysPerYear - usedDays) : null,
+      });
+    }
+    return results;
   }
 
   async getMyRequests(employeeId: number): Promise<LeaveRequest[]> {

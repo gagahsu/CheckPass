@@ -78,6 +78,9 @@ export class LeaveRequest {
   @Column({ name: 'hr_confirmed_at', type: 'timestamp', nullable: true })
   hrConfirmedAt: Date | null;
 
+  @Column({ name: 'attachment_url', type: 'varchar', length: 500, nullable: true })
+  attachmentUrl: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
