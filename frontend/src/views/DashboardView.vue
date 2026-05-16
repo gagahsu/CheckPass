@@ -102,7 +102,7 @@ import Tag from 'primevue/tag'
 import Avatar from 'primevue/avatar'
 import { useAuthStore } from '@/stores/auth'
 import { attendanceApi } from '@/api/attendance'
-import type { AttendanceRecord, AttendanceStatus } from '@/types'
+import type { AttendanceRecord, AttendanceStatus, DashboardStats } from '@/types'
 import AppLayout from '@/components/AppLayout.vue'
 
 const authStore = useAuthStore()
@@ -112,10 +112,7 @@ const recordsLoading = ref(true)
 const recordsError = ref<string | null>(null)
 const recentRecords = ref<AttendanceRecord[]>([])
 
-const todayAttendance = ref(0)
-const pendingLeaves = ref(0)
-const weeklyShifts = ref(0)
-const monthlyHours = ref(0)
+const dashboardStats = ref<DashboardStats | null>(null)
 
 const todayString = computed(() => {
   return new Date().toLocaleDateString('zh-TW', {
@@ -126,30 +123,43 @@ const todayString = computed(() => {
   })
 })
 
+function todayStatusLabel(): string {
+  const status = dashboardStats.value?.todayRecord?.status
+  if (!status) return '未打卡'
+  const map: Record<AttendanceStatus, string> = {
+    normal: '正常',
+    late: '遲到',
+    absent: '缺勤',
+    early_leave: '早退',
+    overtime: '加班'
+  }
+  return map[status] ?? status
+}
+
 const stats = computed(() => [
   {
-    label: '今日出勤人數',
-    value: todayAttendance.value,
-    icon: 'pi pi-users',
+    label: '今日打卡狀態',
+    value: dashboardStats.value ? todayStatusLabel() : '--',
+    icon: 'pi pi-check-circle',
     colorClass: 'stat-blue'
   },
   {
-    label: '待處理假單',
-    value: pendingLeaves.value,
-    icon: 'pi pi-calendar-times',
-    colorClass: 'stat-orange'
-  },
-  {
-    label: '本週班表',
-    value: weeklyShifts.value,
+    label: '本週工時',
+    value: dashboardStats.value ? `${dashboardStats.value.weekSummary.totalHours}h` : '--',
     icon: 'pi pi-calendar',
     colorClass: 'stat-green'
   },
   {
     label: '本月工時',
-    value: `${monthlyHours.value}h`,
+    value: dashboardStats.value ? `${dashboardStats.value.monthSummary.totalHours}h` : '--',
     icon: 'pi pi-clock',
     colorClass: 'stat-purple'
+  },
+  {
+    label: '本月加班',
+    value: dashboardStats.value ? `${dashboardStats.value.monthSummary.overtimeHours}h` : '--',
+    icon: 'pi pi-bolt',
+    colorClass: 'stat-orange'
   }
 ])
 
@@ -185,11 +195,9 @@ function statusSeverity(status: AttendanceStatus): string {
 async function loadStats(): Promise<void> {
   statsLoading.value = true
   try {
-    const today = new Date().toISOString().split('T')[0]
-    const summary = await attendanceApi.getDepartmentSummary(today)
-    todayAttendance.value = summary.reduce((sum, d) => sum + d.present, 0)
+    dashboardStats.value = await attendanceApi.getDashboardStats()
   } catch {
-    // silently ignore — stat cards show 0
+    // silently ignore — stat cards show '--'
   } finally {
     statsLoading.value = false
   }

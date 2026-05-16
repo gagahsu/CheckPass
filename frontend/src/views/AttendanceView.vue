@@ -5,6 +5,26 @@
         <h2 class="page-title">出勤記錄</h2>
       </div>
 
+      <!-- Month Summary -->
+      <div class="summary-grid">
+        <Card
+          v-for="item in summaryItems"
+          :key="item.label"
+          class="summary-card"
+          :class="item.colorClass"
+        >
+          <template #content>
+            <div class="summary-content">
+              <p class="summary-label">{{ item.label }}</p>
+              <p class="summary-value">
+                <span v-if="summaryLoading">--</span>
+                <span v-else>{{ item.value }}</span>
+              </p>
+            </div>
+          </template>
+        </Card>
+      </div>
+
       <!-- Filters -->
       <Card class="filter-card">
         <template #content>
@@ -106,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -114,7 +134,7 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import { attendanceApi } from '@/api/attendance'
-import type { AttendanceRecord, AttendanceStatus } from '@/types'
+import type { AttendanceRecord, AttendanceStatus, WorkHoursSummary } from '@/types'
 import AppLayout from '@/components/AppLayout.vue'
 
 const records = ref<AttendanceRecord[]>([])
@@ -123,6 +143,18 @@ const error = ref<string | null>(null)
 const totalRecords = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+
+const summaryLoading = ref(true)
+const monthSummary = ref<WorkHoursSummary | null>(null)
+
+const summaryItems = computed(() => [
+  { label: '本月工時', value: `${monthSummary.value?.totalHours ?? 0} h`, colorClass: 'sum-blue' },
+  { label: '本月加班', value: `${monthSummary.value?.overtimeHours ?? 0} h`, colorClass: 'sum-purple' },
+  { label: '出勤天數', value: `${monthSummary.value?.workDays ?? 0} 天`, colorClass: 'sum-green' },
+  { label: '遲到次數', value: `${monthSummary.value?.lateCount ?? 0} 次`, colorClass: 'sum-orange' },
+  { label: '缺勤次數', value: `${monthSummary.value?.absentCount ?? 0} 次`, colorClass: 'sum-red' },
+  { label: '早退次數', value: `${monthSummary.value?.earlyLeaveCount ?? 0} 次`, colorClass: 'sum-gray' },
+])
 
 const filterStartDate = ref('')
 const filterEndDate = ref('')
@@ -189,7 +221,19 @@ function onPage(event: { page: number }): void {
   loadRecords()
 }
 
+async function loadSummary(): Promise<void> {
+  summaryLoading.value = true
+  try {
+    monthSummary.value = await attendanceApi.getWorkHoursSummary('month')
+  } catch {
+    // silently ignore — cards show 0
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
 onMounted(() => {
+  loadSummary()
   loadRecords()
 })
 </script>
@@ -212,6 +256,40 @@ onMounted(() => {
   font-weight: 700;
   color: #111827;
 }
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.summary-card {
+  border-radius: 10px;
+}
+
+.summary-content {
+  text-align: center;
+  padding: 0.25rem 0;
+}
+
+.summary-label {
+  font-size: 0.78rem;
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+}
+
+.summary-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.sum-blue  { border-top: 3px solid #0284c7; }
+.sum-purple{ border-top: 3px solid #7c3aed; }
+.sum-green { border-top: 3px solid #16a34a; }
+.sum-orange{ border-top: 3px solid #ea580c; }
+.sum-red   { border-top: 3px solid #dc2626; }
+.sum-gray  { border-top: 3px solid #6b7280; }
 
 .filter-card,
 .table-card {

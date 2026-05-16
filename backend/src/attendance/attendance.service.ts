@@ -171,11 +171,13 @@ export class AttendanceService {
     if (dto.longitude != null) record.longitude = dto.longitude;
     if (dto.note) record.note = dto.note;
 
-    // Overtime: use actual shift end time when available
-    const overtimeHours = await this.calcOvertimeHours(record, now);
+    // Early leave / overtime detection from shift schedule
+    const { overtimeHours, earlyLeaveMinutes } = await this.calcCheckOutMetrics(record, now);
     record.overtimeHours = overtimeHours;
 
-    if (overtimeHours > 0 && record.status === AttendanceStatus.ON_TIME) {
+    if (earlyLeaveMinutes > 0) {
+      record.status = AttendanceStatus.EARLY_LEAVE;
+    } else if (overtimeHours > 0 && record.status === AttendanceStatus.ON_TIME) {
       record.status = AttendanceStatus.OVERTIME;
     }
 
@@ -312,8 +314,11 @@ export class AttendanceService {
     return { lateMinutes, status };
   }
 
-  private async calcOvertimeHours(record: AttendanceRecord, checkOutTime: Date): Promise<number> {
-    if (!record.checkInTime) return 0;
+  private async calcCheckOutMetrics(
+    record: AttendanceRecord,
+    checkOutTime: Date,
+  ): Promise<{ overtimeHours: number; earlyLeaveMinutes: number }> {
+    if (!record.checkInTime) return { overtimeHours: 0, earlyLeaveMinutes: 0 };
 
     if (record.shiftScheduleId) {
       const schedule = await this.shiftScheduleRepo.findOne({
@@ -326,18 +331,109 @@ export class AttendanceService {
         const shiftEnd = new Date(checkOutTime);
         shiftEnd.setHours(endHour, endMin, 0, 0);
 
-        const extraMs = checkOutTime.getTime() - shiftEnd.getTime();
-        if (extraMs > 0) {
-          return parseFloat((extraMs / 3_600_000).toFixed(2));
+        const diffMs = checkOutTime.getTime() - shiftEnd.getTime();
+        if (diffMs > 0) {
+          return { overtimeHours: parseFloat((diffMs / 3_600_000).toFixed(2)), earlyLeaveMinutes: 0 };
         }
-        return 0;
+        // Early leave: more than grace period before shift end
+        const earlyMs = -diffMs;
+        const earlyLeaveMinutes = earlyMs > GRACE_MINUTES * 60_000
+          ? Math.floor(earlyMs / 60_000)
+          : 0;
+        return { overtimeHours: 0, earlyLeaveMinutes };
       }
     }
 
     // Fallback: 8-hour standard shift
     const workedMs = checkOutTime.getTime() - record.checkInTime.getTime();
     const extraMs = workedMs - 8 * 3_600_000;
-    return extraMs > 0 ? parseFloat((extraMs / 3_600_000).toFixed(2)) : 0;
+    return {
+      overtimeHours: extraMs > 0 ? parseFloat((extraMs / 3_600_000).toFixed(2)) : 0,
+      earlyLeaveMinutes: 0,
+    };
+  }
+
+  /** Personal work-hours summary for week or month. */
+  async getWorkHoursSummary(
+    employeeId: number,
+    period: 'week' | 'month',
+  ): Promise<{
+    totalHours: number;
+    overtimeHours: number;
+    lateCount: number;
+    absentCount: number;
+    earlyLeaveCount: number;
+    workDays: number;
+  }> {
+    const now = new Date();
+    let start: Date;
+
+    if (period === 'week') {
+      const dayOfWeek = now.getDay();
+      start = new Date(now);
+      start.setDate(now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
+      start.setHours(0, 0, 0, 0);
+    } else {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    const records = await this.attendanceRepo.find({
+      where: { employeeId, checkInTime: Between(start, this.endOfDay(now)) },
+    });
+
+    const totalMs = records.reduce((sum, r) => {
+      if (r.checkInTime && r.checkOutTime) {
+        return sum + (r.checkOutTime.getTime() - r.checkInTime.getTime());
+      }
+      return sum;
+    }, 0);
+
+    return {
+      totalHours: parseFloat((totalMs / 3_600_000).toFixed(1)),
+      overtimeHours: parseFloat(
+        records.reduce((s, r) => s + Number(r.overtimeHours), 0).toFixed(1),
+      ),
+      lateCount: records.filter((r) => r.status === AttendanceStatus.LATE).length,
+      absentCount: records.filter((r) => r.status === AttendanceStatus.ABSENT).length,
+      earlyLeaveCount: records.filter((r) => r.status === AttendanceStatus.EARLY_LEAVE).length,
+      workDays: records.filter((r) => r.status !== AttendanceStatus.ABSENT).length,
+    };
+  }
+
+  /** Combined dashboard stats for the authenticated employee. */
+  async getDashboardStats(employeeId: number): Promise<{
+    todayRecord: AttendanceRecord | null;
+    weekSummary: Awaited<ReturnType<AttendanceService['getWorkHoursSummary']>>;
+    monthSummary: Awaited<ReturnType<AttendanceService['getWorkHoursSummary']>>;
+  }> {
+    const [todayRecord, weekSummary, monthSummary] = await Promise.all([
+      this.getTodayRecord(employeeId),
+      this.getWorkHoursSummary(employeeId, 'week'),
+      this.getWorkHoursSummary(employeeId, 'month'),
+    ]);
+    return { todayRecord, weekSummary, monthSummary };
+  }
+
+  /** Mark an employee as absent for a given date (called by scheduler). */
+  async markAbsent(employeeId: number, date: Date): Promise<void> {
+    const dayStart = this.startOfDay(date);
+    const dayEnd = this.endOfDay(date);
+
+    const existing = await this.attendanceRepo.findOne({
+      where: { employeeId, checkInTime: Between(dayStart, dayEnd) },
+    });
+    if (existing) return; // already has a record
+
+    const record = this.attendanceRepo.create({
+      employeeId,
+      checkInTime: dayStart,
+      status: AttendanceStatus.ABSENT,
+      lateMinutes: 0,
+      overtimeHours: 0,
+      note: '系統自動標記缺勤',
+    });
+    await this.attendanceRepo.save(record);
+    this.logger.log(`Marked employee ${employeeId} as absent for ${date.toISOString().split('T')[0]}`);
   }
 
   private async checkSpeedAnomaly(

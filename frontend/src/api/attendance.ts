@@ -5,6 +5,8 @@ import type {
   CheckOutPayload,
   RecordQuery,
   DepartmentSummary,
+  WorkHoursSummary,
+  DashboardStats,
   PagedResponse,
 } from '@/types'
 
@@ -27,9 +29,19 @@ export const attendanceApi = {
       .then((r) => r.data)
   },
 
-  getDepartmentSummary(date: string): Promise<DepartmentSummary[]> {
+  getWorkHoursSummary(period: 'week' | 'month'): Promise<WorkHoursSummary> {
     return apiClient
-      .get<DepartmentSummary[]>('/attendance/department-summary', { params: { date } })
+      .get<WorkHoursSummary>('/attendance/summary', { params: { period } })
+      .then((r) => r.data)
+  },
+
+  getDashboardStats(): Promise<DashboardStats> {
+    return apiClient.get<DashboardStats>('/attendance/dashboard-stats').then((r) => r.data)
+  },
+
+  getDepartmentSummary(date: string): Promise<DepartmentSummary> {
+    return apiClient
+      .get<DepartmentSummary>('/attendance/department-summary', { params: { date } })
       .then((r) => r.data)
   },
 }

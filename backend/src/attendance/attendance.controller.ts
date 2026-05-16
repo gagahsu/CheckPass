@@ -61,6 +61,24 @@ export class AttendanceController {
     return this.attendanceService.getTodayRecord(user.employeeId);
   }
 
+  @Get('dashboard-stats')
+  @ApiOperation({ summary: '個人儀表板統計（今日打卡 + 週/月工時）' })
+  @ApiResponse({ status: 200, description: '儀表板統計資料' })
+  async getDashboardStats(@CurrentUser() user: JwtPayload) {
+    return this.attendanceService.getDashboardStats(user.employeeId);
+  }
+
+  @Get('summary')
+  @ApiOperation({ summary: '個人工時摘要' })
+  @ApiQuery({ name: 'period', enum: ['week', 'month'], description: '統計週期' })
+  @ApiResponse({ status: 200, description: '工時統計' })
+  async getWorkHoursSummary(
+    @CurrentUser() user: JwtPayload,
+    @Query('period') period: 'week' | 'month' = 'month',
+  ) {
+    return this.attendanceService.getWorkHoursSummary(user.employeeId, period);
+  }
+
   @Get('department-summary')
   @UseGuards(RolesGuard)
   @Roles('manager', 'hr', 'admin')

@@ -138,6 +138,21 @@ export interface DepartmentSummary {
   date: string
 }
 
+export interface WorkHoursSummary {
+  totalHours: number
+  overtimeHours: number
+  lateCount: number
+  absentCount: number
+  earlyLeaveCount: number
+  workDays: number
+}
+
+export interface DashboardStats {
+  todayRecord: AttendanceRecord | null
+  weekSummary: WorkHoursSummary
+  monthSummary: WorkHoursSummary
+}
+
 // ─── Shift ─────────────────────────────────────────────────────────────────────
 
 export interface ShiftType {
