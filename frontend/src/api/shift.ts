@@ -1,30 +1,52 @@
 import apiClient from './index'
 import type { ShiftType, ScheduleEntry, AssignShiftPayload } from '@/types'
 
+interface CreateShiftTypePayload {
+  name: string
+  startTime: string
+  endTime: string
+  breakMinutes?: number
+  graceMinutes?: number
+  minStaff?: number
+  maxStaff?: number
+  color?: string
+  storeId?: number
+}
+
 export const shiftApi = {
-  getShiftTypes(storeId: number): Promise<ShiftType[]> {
+  getShiftTypes(storeId?: number): Promise<ShiftType[]> {
     return apiClient
-      .get<ShiftType[]>('/api/shifts/types', { params: { storeId } })
+      .get<ShiftType[]>('/shifts/types', { params: storeId ? { storeId } : {} })
       .then((r) => r.data)
+  },
+
+  createShiftType(data: CreateShiftTypePayload): Promise<ShiftType> {
+    return apiClient.post<ShiftType>('/shifts/types', data).then((r) => r.data)
   },
 
   getSchedule(storeId: number, weekStart: string): Promise<ScheduleEntry[]> {
     return apiClient
-      .get<ScheduleEntry[]>('/api/shifts/schedule', { params: { storeId, weekStart } })
+      .get<ScheduleEntry[]>('/shifts/schedule', { params: { storeId, weekStart } })
       .then((r) => r.data)
   },
 
-  assignShift(data: AssignShiftPayload): Promise<void> {
-    return apiClient.post('/api/shifts/schedule', data).then(() => undefined)
+  getMySchedule(weekStart: string): Promise<ScheduleEntry[]> {
+    return apiClient
+      .get<ScheduleEntry[]>('/shifts/my-schedule', { params: { weekStart } })
+      .then((r) => r.data)
+  },
+
+  assignShift(data: AssignShiftPayload): Promise<ScheduleEntry> {
+    return apiClient.post<ScheduleEntry>('/shifts/schedule', data).then((r) => r.data)
   },
 
   removeShift(scheduleId: number): Promise<void> {
-    return apiClient.delete(`/api/shifts/schedule/${scheduleId}`).then(() => undefined)
+    return apiClient.delete(`/shifts/schedule/${scheduleId}`).then(() => undefined)
   },
 
   publishSchedule(storeId: number, weekStart: string): Promise<void> {
     return apiClient
-      .post('/api/shifts/schedule/publish', { storeId, weekStart })
+      .post('/shifts/schedule/publish', { storeId, weekStart })
       .then(() => undefined)
-  }
+  },
 }

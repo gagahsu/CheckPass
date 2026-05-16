@@ -24,6 +24,8 @@ import { CreateShiftTypeDto, AssignShiftDto, PublishScheduleDto } from './dto/sh
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { JwtPayload } from '../common/guards/roles.guard';
 
 @ApiTags('shift')
 @ApiBearerAuth('JWT')
@@ -92,6 +94,20 @@ export class ShiftController {
     @Query('weekStart') weekStart: string,
   ) {
     return this.shiftService.getSchedule(storeId, weekStart);
+  }
+
+  /**
+   * Get the current employee's weekly schedule.
+   */
+  @Get('my-schedule')
+  @ApiOperation({ summary: '我的本週班表' })
+  @ApiQuery({ name: 'weekStart', description: 'YYYY-MM-DD (Monday)', example: '2026-05-18' })
+  @ApiResponse({ status: 200, description: '個人班表' })
+  async getMySchedule(
+    @CurrentUser() user: JwtPayload,
+    @Query('weekStart') weekStart: string,
+  ) {
+    return this.shiftService.getMySchedule(user.employeeId, weekStart);
   }
 
   /**

@@ -12,33 +12,36 @@ export class ShiftType {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id: number;
 
-  /** Store / location identifier — null means company-wide */
   @Column({ name: 'store_id', type: 'bigint', nullable: true })
   @Index()
   storeId: number | null;
 
+  /** Display name of the shift (stored as shift_name in DB) */
   @Column({ name: 'shift_name', type: 'varchar', length: 100 })
-  shiftName: string;
+  name: string;
 
-  /** Shift start time stored as HH:MM string (e.g. "09:00") */
   @Column({ name: 'start_time', type: 'varchar', length: 5 })
   startTime: string;
 
-  /** Shift end time stored as HH:MM string (e.g. "18:00") */
   @Column({ name: 'end_time', type: 'varchar', length: 5 })
   endTime: string;
 
-  /** Break duration in minutes */
   @Column({ name: 'break_minutes', type: 'int', default: 60 })
   breakMinutes: number;
 
-  /** Minimum staff required for this shift */
+  /** Tardiness grace period in minutes */
+  @Column({ name: 'grace_minutes', type: 'int', default: 5 })
+  graceMinutes: number;
+
   @Column({ name: 'min_staff', type: 'int', default: 1 })
   minStaff: number;
 
-  /** Maximum staff allowed for this shift */
   @Column({ name: 'max_staff', type: 'int', default: 10 })
   maxStaff: number;
+
+  /** Hex color for calendar display */
+  @Column({ type: 'varchar', length: 20, default: '#06b6d4' })
+  color: string;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

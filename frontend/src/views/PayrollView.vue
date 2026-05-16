@@ -5,7 +5,7 @@
         <h2 class="page-title">薪資查詢</h2>
       </div>
 
-      <!-- Year/Month Selector -->
+      <!-- Period Selector -->
       <Card class="selector-card">
         <template #content>
           <div class="selector-row">
@@ -25,26 +25,20 @@
         </template>
       </Card>
 
-      <!-- Loading -->
+      <!-- Employee Payslip -->
       <div v-if="loading" class="loading-state">
         <i class="pi pi-spin pi-spinner"></i>
         <span>載入薪資資料...</span>
       </div>
-
-      <!-- Error -->
-      <div v-else-if="error" class="error-state">
+      <div v-else-if="loadError" class="error-state">
         <i class="pi pi-exclamation-triangle"></i>
-        <span>{{ error }}</span>
+        <span>{{ loadError }}</span>
       </div>
-
-      <!-- No Data -->
       <div v-else-if="!payroll" class="empty-state">
         <i class="pi pi-wallet"></i>
         <p>本月薪資尚未計算</p>
       </div>
-
       <template v-else>
-        <!-- Payroll Summary -->
         <div class="summary-grid">
           <Card class="summary-card salary-blue">
             <template #content>
@@ -65,8 +59,8 @@
           <Card class="summary-card salary-red">
             <template #content>
               <div class="summary-item">
-                <p class="summary-label">扣款合計</p>
-                <p class="summary-amount">-{{ formatCurrency(payroll.totalDeductions) }}</p>
+                <p class="summary-label">扣款</p>
+                <p class="summary-amount">-{{ formatCurrency(payroll.deduction) }}</p>
               </div>
             </template>
           </Card>
@@ -74,28 +68,27 @@
             <template #content>
               <div class="summary-item">
                 <p class="summary-label">實領金額</p>
-                <p class="summary-amount net">{{ formatCurrency(payroll.netSalary) }}</p>
+                <p class="summary-amount net">{{ formatCurrency(payroll.totalSalary) }}</p>
               </div>
             </template>
           </Card>
         </div>
 
-        <!-- Work Stats -->
         <Card class="stats-card">
           <template #title>出勤統計</template>
           <template #content>
             <div class="work-stats">
               <div class="stat-item">
-                <span class="stat-label">應出勤</span>
+                <span class="stat-label">出勤天數</span>
                 <span class="stat-val">{{ payroll.workingDays }} 天</span>
               </div>
               <div class="stat-item">
-                <span class="stat-label">實際出勤</span>
-                <span class="stat-val">{{ payroll.actualWorkingDays }} 天</span>
+                <span class="stat-label">加班時數</span>
+                <span class="stat-val">{{ payroll.overtimeHours }} h</span>
               </div>
               <div class="stat-item">
-                <span class="stat-label">請假天數</span>
-                <span class="stat-val">{{ payroll.leaveDays }} 天</span>
+                <span class="stat-label">遲到分鐘</span>
+                <span class="stat-val">{{ payroll.lateMinutes }} 分</span>
               </div>
               <div class="stat-item">
                 <span class="stat-label">狀態</span>
@@ -104,107 +97,133 @@
             </div>
           </template>
         </Card>
-
-        <!-- Overtime Details -->
-        <Card v-if="payroll.overtimeDetails.length > 0" class="overtime-card">
-          <template #title>加班明細</template>
-          <template #content>
-            <DataTable :value="payroll.overtimeDetails" responsive-layout="scroll">
-              <Column field="date" header="日期" />
-              <Column field="hours" header="加班時數">
-                <template #body="{ data }">
-                  {{ data.hours }} h
-                </template>
-              </Column>
-              <Column field="multiplier" header="倍率">
-                <template #body="{ data }">
-                  {{ data.multiplier }}x
-                </template>
-              </Column>
-              <Column field="amount" header="加班費">
-                <template #body="{ data }">
-                  {{ formatCurrency(data.amount) }}
-                </template>
-              </Column>
-            </DataTable>
-          </template>
-        </Card>
-
-        <!-- Deductions -->
-        <Card v-if="payroll.deductions.length > 0" class="deductions-card">
-          <template #title>扣款明細</template>
-          <template #content>
-            <DataTable :value="payroll.deductions" responsive-layout="scroll">
-              <Column field="label" header="項目" />
-              <Column field="amount" header="金額">
-                <template #body="{ data }">
-                  -{{ formatCurrency(data.amount) }}
-                </template>
-              </Column>
-            </DataTable>
-          </template>
-        </Card>
       </template>
+
+      <!-- HR Section -->
+      <Card v-if="isHr" class="hr-card">
+        <template #title>薪資管理（HR）</template>
+        <template #content>
+          <div class="hr-controls">
+            <div class="selector-group">
+              <label>員工ID</label>
+              <InputText v-model.number="hrEmployeeId" type="number" placeholder="員工ID" class="hr-input" />
+            </div>
+            <div class="selector-group">
+              <label>底薪（TWD）</label>
+              <InputText v-model.number="hrBaseSalary" type="number" placeholder="45000" class="hr-input" />
+            </div>
+            <Button
+              label="計算薪資"
+              icon="pi pi-calculator"
+              :loading="calculating"
+              @click="handleCalculate"
+            />
+            <Button
+              v-if="payroll && payroll.status === 'draft'"
+              label="確認薪資"
+              icon="pi pi-check"
+              severity="success"
+              :loading="confirming"
+              @click="handleConfirm"
+            />
+          </div>
+          <div v-if="hrError" class="hr-error">{{ hrError }}</div>
+        </template>
+      </Card>
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import Card from 'primevue/card'
-import DataTable from 'primevue/datatable'
-import Column from 'primevue/column'
+import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
 import { payrollApi } from '@/api/payroll'
 import type { Payroll, PayrollStatus } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
+
+const authStore = useAuthStore()
+const isHr = computed(() => authStore.hasRole('hr') || authStore.hasRole('admin'))
 
 const now = new Date()
 const selectedYear = ref(now.getFullYear())
 const selectedMonth = ref(now.getMonth() + 1)
 const payroll = ref<Payroll | null>(null)
 const loading = ref(false)
-const error = ref<string | null>(null)
+const loadError = ref<string | null>(null)
+const calculating = ref(false)
+const confirming = ref(false)
+const hrError = ref<string | null>(null)
+const hrEmployeeId = ref<number | ''>('')
+const hrBaseSalary = ref<number | ''>(45000)
 
 const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
 function formatCurrency(amount: number): string {
-  return `NT$ ${amount.toLocaleString('zh-TW')}`
+  return `NT$ ${Number(amount).toLocaleString('zh-TW')}`
 }
 
 function statusLabel(status: PayrollStatus): string {
-  const map: Record<PayrollStatus, string> = {
-    draft: '草稿',
-    confirmed: '已確認',
-    paid: '已發放'
-  }
+  const map: Record<PayrollStatus, string> = { draft: '草稿', confirmed: '已確認' }
   return map[status] ?? status
 }
 
 function statusSeverity(status: PayrollStatus): string {
-  const map: Record<PayrollStatus, string> = {
-    draft: 'secondary',
-    confirmed: 'warn',
-    paid: 'success'
-  }
+  const map: Record<PayrollStatus, string> = { draft: 'secondary', confirmed: 'success' }
   return map[status] ?? 'secondary'
 }
 
 async function loadPayroll(): Promise<void> {
   loading.value = true
-  error.value = null
+  loadError.value = null
   payroll.value = null
   try {
     payroll.value = await payrollApi.getPayroll(selectedYear.value, selectedMonth.value)
   } catch (err: unknown) {
     const e = err as { response?: { status?: number } }
-    if (e?.response?.status === 404) {
-      payroll.value = null
-    } else {
-      error.value = '無法載入薪資資料'
+    if (e?.response?.status !== 404) {
+      loadError.value = '無法載入薪資資料'
     }
   } finally {
     loading.value = false
+  }
+}
+
+async function handleCalculate(): Promise<void> {
+  if (!hrEmployeeId.value) {
+    hrError.value = '請輸入員工ID'
+    return
+  }
+  calculating.value = true
+  hrError.value = null
+  try {
+    const result = await payrollApi.calculate(
+      Number(hrEmployeeId.value),
+      selectedYear.value,
+      selectedMonth.value,
+      hrBaseSalary.value ? Number(hrBaseSalary.value) : undefined,
+    )
+    payroll.value = result
+  } catch {
+    hrError.value = '計算失敗，請確認員工ID是否正確'
+  } finally {
+    calculating.value = false
+  }
+}
+
+async function handleConfirm(): Promise<void> {
+  if (!payroll.value) return
+  confirming.value = true
+  hrError.value = null
+  try {
+    payroll.value = await payrollApi.confirm(payroll.value.id)
+  } catch {
+    hrError.value = '確認失敗，請稍後再試'
+  } finally {
+    confirming.value = false
   }
 }
 
@@ -234,8 +253,7 @@ onMounted(() => {
 
 .selector-card,
 .stats-card,
-.overtime-card,
-.deductions-card {
+.hr-card {
   border-radius: 12px;
 }
 
@@ -293,9 +311,7 @@ onMounted(() => {
   font-size: 1.75rem;
 }
 
-.salary-red .summary-amount {
-  color: #dc2626;
-}
+.salary-red .summary-amount { color: #dc2626; }
 
 .work-stats {
   display: grid;
@@ -320,6 +336,26 @@ onMounted(() => {
   color: #111827;
 }
 
+.hr-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.hr-input {
+  min-width: 130px;
+}
+
+.hr-error {
+  margin-top: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
 .loading-state,
 .error-state,
 .empty-state {
@@ -335,9 +371,7 @@ onMounted(() => {
 }
 
 .empty-state i,
-.loading-state i {
-  font-size: 2.5rem;
-}
+.loading-state i { font-size: 2.5rem; }
 
 .error-state {
   color: #dc2626;

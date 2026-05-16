@@ -11,7 +11,14 @@
         </div>
         <div class="header-right">
           <Button
-            v-if="authStore.hasRole('manager') || authStore.hasRole('admin')"
+            v-if="canManage"
+            label="新增班別"
+            icon="pi pi-plus"
+            severity="secondary"
+            @click="openAddShiftType"
+          />
+          <Button
+            v-if="canManage"
             label="發布班表"
             icon="pi pi-send"
             :loading="publishing"
@@ -29,22 +36,21 @@
             <div v-if="shiftTypesLoading" class="loading-state">
               <i class="pi pi-spin pi-spinner"></i>
             </div>
+            <div v-else-if="shiftTypes.length === 0" class="empty-types">
+              <p>尚無班別，請新增</p>
+            </div>
             <div v-else class="shift-types-list">
               <div
                 v-for="st in shiftTypes"
                 :key="st.id"
                 class="shift-type-item"
                 :style="{ borderLeft: `4px solid ${st.color}` }"
-                draggable="true"
+                :draggable="canManage"
                 @dragstart="onShiftTypeDragStart(st)"
               >
                 <div class="shift-type-name">{{ st.name }}</div>
-                <div class="shift-type-time">
-                  {{ st.startTime }} – {{ st.endTime }}
-                </div>
-                <div class="shift-type-range">
-                  {{ st.minEmployees }}–{{ st.maxEmployees }} 人
-                </div>
+                <div class="shift-type-time">{{ st.startTime }} – {{ st.endTime }}</div>
+                <div class="shift-type-range">{{ st.minStaff }}–{{ st.maxStaff }} 人</div>
               </div>
             </div>
           </template>
@@ -60,12 +66,12 @@
             </div>
           </template>
           <template #content>
-            <div v-if="scheduleLoading" class="loading-state">
+            <div v-if="scheduleLoading || employeesLoading" class="loading-state">
               <i class="pi pi-spin pi-spinner"></i>
-              <span>載入班表中...</span>
+              <span>載入中...</span>
             </div>
             <div v-else class="week-calendar">
-              <!-- Header row -->
+              <!-- Header -->
               <div class="cal-header">
                 <div class="cal-cell cal-empty"></div>
                 <div v-for="day in weekDays" :key="day.iso" class="cal-cell cal-day-header">
@@ -75,14 +81,10 @@
               </div>
 
               <!-- Employee rows -->
-              <div v-if="scheduleEmployees.length === 0" class="empty-cal">
-                <p>班表無排班資料</p>
+              <div v-if="allEmployees.length === 0" class="empty-cal">
+                <p>無員工資料</p>
               </div>
-              <div
-                v-for="emp in scheduleEmployees"
-                :key="emp.id"
-                class="cal-row"
-              >
+              <div v-for="emp in allEmployees" :key="emp.id" class="cal-row">
                 <div class="cal-cell cal-emp-name">
                   <Avatar :label="emp.name.charAt(0)" size="small" shape="circle" />
                   <span>{{ emp.name }}</span>
@@ -91,18 +93,18 @@
                   v-for="day in weekDays"
                   :key="day.iso"
                   class="cal-cell cal-day-cell"
-                  :class="{ droptarget: dragOverCell === `${emp.id}-${day.iso}` }"
-                  @dragover.prevent="dragOverCell = `${emp.id}-${day.iso}`"
+                  :class="{ droptarget: canManage && dragOverCell === `${emp.id}-${day.iso}` }"
+                  @dragover.prevent="canManage && (dragOverCell = `${emp.id}-${day.iso}`)"
                   @dragleave="dragOverCell = null"
-                  @drop="onDrop(emp.id, day.iso)"
+                  @drop="canManage && onDrop(emp.id, day.iso)"
                 >
                   <div
                     v-for="entry in getEntries(emp.id, day.iso)"
                     :key="entry.id"
                     class="cal-event"
                     :style="{ background: entry.shiftType?.color ?? '#06b6d4' }"
-                    @click="removeEntry(entry.id)"
-                    :title="'點擊移除'"
+                    :title="canManage ? '點擊移除' : entry.shiftType?.name"
+                    @click="canManage && removeEntry(entry.id)"
                   >
                     {{ entry.shiftType?.name ?? '未知班別' }}
                   </div>
@@ -110,13 +112,66 @@
               </div>
             </div>
 
-            <p class="drag-hint">
+            <p v-if="canManage" class="drag-hint">
               <i class="pi pi-info-circle"></i>
               將左側班別拖放到格子中排班，點擊格子中的班別可移除
             </p>
           </template>
         </Card>
       </div>
+
+      <!-- Add Shift Type Dialog -->
+      <Dialog
+        v-model:visible="addShiftTypeVisible"
+        header="新增班別"
+        modal
+        :style="{ width: '420px' }"
+      >
+        <form class="shift-type-form" @submit.prevent="handleAddShiftType">
+          <div class="form-group">
+            <label class="form-label">班別名稱 *</label>
+            <InputText v-model="newShiftType.name" placeholder="早班、午班..." class="w-full" required />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">開始時間 *</label>
+              <InputText v-model="newShiftType.startTime" type="time" class="w-full" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">結束時間 *</label>
+              <InputText v-model="newShiftType.endTime" type="time" class="w-full" required />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">休息時間（分）</label>
+              <InputText v-model.number="newShiftType.breakMinutes" type="number" min="0" max="480" class="w-full" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">彈性時間（分）</label>
+              <InputText v-model.number="newShiftType.graceMinutes" type="number" min="0" max="60" class="w-full" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">顏色</label>
+            <div class="color-picker">
+              <label
+                v-for="c in colorOptions"
+                :key="c"
+                class="color-option"
+                :class="{ selected: newShiftType.color === c }"
+                :style="{ background: c }"
+                @click="newShiftType.color = c"
+              ></label>
+            </div>
+          </div>
+          <div v-if="addShiftTypeError" class="form-error">{{ addShiftTypeError }}</div>
+        </form>
+        <template #footer>
+          <Button label="取消" severity="secondary" @click="addShiftTypeVisible = false" />
+          <Button label="新增" icon="pi pi-check" :loading="addingShiftType" @click="handleAddShiftType" />
+        </template>
+      </Dialog>
     </div>
   </AppLayout>
 </template>
@@ -128,31 +183,47 @@ import Card from 'primevue/card'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import Avatar from 'primevue/avatar'
+import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
 import { shiftApi } from '@/api/shift'
-import { attendanceApi } from '@/api/attendance'
-import type { ShiftType, ScheduleEntry, ScheduleStatus } from '@/types'
+import { hrApi } from '@/api/hr'
+import type { ShiftType, ScheduleEntry, ScheduleStatus, Employee } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
 
-interface ScheduleEmployee {
-  id: number
-  name: string
-  empNo: string
-}
-
 const toast = useToast()
 const authStore = useAuthStore()
+
+const canManage = computed(
+  () => authStore.hasRole('manager') || authStore.hasRole('hr') || authStore.hasRole('admin'),
+)
 
 const storeId = ref(1)
 const weekStart = ref(getMonday(new Date()))
 const shiftTypes = ref<ShiftType[]>([])
 const scheduleEntries = ref<ScheduleEntry[]>([])
+const allEmployees = ref<Employee[]>([])
 const shiftTypesLoading = ref(false)
 const scheduleLoading = ref(false)
+const employeesLoading = ref(false)
 const publishing = ref(false)
 const scheduleStatus = ref<ScheduleStatus>('draft')
 const draggedShiftType = ref<ShiftType | null>(null)
 const dragOverCell = ref<string | null>(null)
+
+// Add shift type dialog
+const addShiftTypeVisible = ref(false)
+const addingShiftType = ref(false)
+const addShiftTypeError = ref<string | null>(null)
+const colorOptions = ['#06b6d4', '#0284c7', '#7c3aed', '#16a34a', '#ea580c', '#dc2626', '#f59e0b', '#64748b']
+const newShiftType = ref({
+  name: '',
+  startTime: '09:00',
+  endTime: '18:00',
+  breakMinutes: 60,
+  graceMinutes: 5,
+  color: '#06b6d4',
+})
 
 function getMonday(d: Date): string {
   const date = new Date(d)
@@ -175,7 +246,7 @@ const weekDays = computed(() => {
       iso,
       weekday: `週${weekdayNames[d.getDay()]}`,
       date: `${d.getMonth() + 1}/${d.getDate()}`,
-      isToday: iso === today
+      isToday: iso === today,
     })
   }
   return days
@@ -186,20 +257,6 @@ const weekLabel = computed(() => {
   const end = new Date(start)
   end.setDate(end.getDate() + 6)
   return `${start.getMonth() + 1}/${start.getDate()} – ${end.getMonth() + 1}/${end.getDate()}`
-})
-
-const scheduleEmployees = computed<ScheduleEmployee[]>(() => {
-  const map = new Map<number, ScheduleEmployee>()
-  for (const entry of scheduleEntries.value) {
-    if (entry.employee && !map.has(entry.employeeId)) {
-      map.set(entry.employeeId, {
-        id: entry.employeeId,
-        name: entry.employee.name,
-        empNo: entry.employee.empNo
-      })
-    }
-  }
-  return Array.from(map.values())
 })
 
 function getEntries(empId: number, date: string): ScheduleEntry[] {
@@ -228,13 +285,13 @@ async function onDrop(empId: number, date: string): Promise<void> {
   dragOverCell.value = null
   if (!draggedShiftType.value) return
   try {
-    await shiftApi.assignShift({
+    const entry = await shiftApi.assignShift({
       employeeId: empId,
       shiftTypeId: draggedShiftType.value.id,
       date,
-      storeId: storeId.value
+      storeId: storeId.value,
     })
-    await loadSchedule()
+    scheduleEntries.value.push(entry)
     toast.add({ severity: 'success', summary: '排班成功', detail: `${date} 已排班`, life: 2000 })
   } catch {
     toast.add({ severity: 'error', summary: '排班失敗', detail: '請稍後再試', life: 3000 })
@@ -265,6 +322,36 @@ async function handlePublish(): Promise<void> {
   }
 }
 
+function openAddShiftType(): void {
+  newShiftType.value = { name: '', startTime: '09:00', endTime: '18:00', breakMinutes: 60, graceMinutes: 5, color: '#06b6d4' }
+  addShiftTypeError.value = null
+  addShiftTypeVisible.value = true
+}
+
+async function handleAddShiftType(): Promise<void> {
+  if (!newShiftType.value.name.trim()) {
+    addShiftTypeError.value = '請填寫班別名稱'
+    return
+  }
+  addingShiftType.value = true
+  addShiftTypeError.value = null
+  try {
+    const created = await shiftApi.createShiftType({
+      ...newShiftType.value,
+      startTime: newShiftType.value.startTime.slice(0, 5),
+      endTime: newShiftType.value.endTime.slice(0, 5),
+      storeId: storeId.value,
+    })
+    shiftTypes.value.push(created)
+    addShiftTypeVisible.value = false
+    toast.add({ severity: 'success', summary: `班別「${created.name}」已新增`, life: 3000 })
+  } catch {
+    addShiftTypeError.value = '新增失敗，請稍後再試'
+  } finally {
+    addingShiftType.value = false
+  }
+}
+
 async function loadShiftTypes(): Promise<void> {
   shiftTypesLoading.value = true
   try {
@@ -289,13 +376,15 @@ async function loadSchedule(): Promise<void> {
   }
 }
 
-// Also need employees list — we load it from attendance summary for now
 async function loadEmployees(): Promise<void> {
+  employeesLoading.value = true
   try {
-    const today = new Date().toISOString().split('T')[0]
-    await attendanceApi.getDepartmentSummary(today)
+    const res = await hrApi.listEmployees({ page: 1, pageSize: 500, status: 'active' })
+    allEmployees.value = res.data
   } catch {
-    // ignore
+    allEmployees.value = []
+  } finally {
+    employeesLoading.value = false
   }
 }
 
@@ -323,6 +412,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.header-right {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .page-title {
@@ -375,6 +469,13 @@ onMounted(() => {
 .shift-type-range {
   font-size: 0.75rem;
   color: #9ca3af;
+}
+
+.empty-types {
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.875rem;
+  padding: 1rem 0;
 }
 
 .calendar-card {
@@ -512,6 +613,61 @@ onMounted(() => {
   gap: 0.5rem;
   padding: 2rem;
   color: #6b7280;
+}
+
+/* Add shift type form */
+.shift-type-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.w-full { width: 100%; }
+
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.color-option {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.color-option.selected {
+  border-color: #111827;
+}
+
+.form-error {
+  color: #dc2626;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  background: #fee2e2;
+  border-radius: 6px;
 }
 
 @media (max-width: 768px) {

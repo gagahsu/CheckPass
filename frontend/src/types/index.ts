@@ -155,13 +155,14 @@ export interface DashboardStats {
 
 export interface ShiftType {
   id: number
+  storeId: number | null
   name: string
-  storeId: number
   startTime: string
   endTime: string
+  breakMinutes: number
   graceMinutes: number
-  minEmployees: number
-  maxEmployees: number
+  minStaff: number
+  maxStaff: number
   color: string
   createdAt: string
   updatedAt: string
@@ -182,6 +183,7 @@ export interface ScheduleEntry {
   createdAt: string
   updatedAt: string
 }
+
 
 export interface AssignShiftPayload {
   employeeId: number
@@ -229,37 +231,22 @@ export interface LeaveApplyPayload {
 
 // ─── Payroll ───────────────────────────────────────────────────────────────────
 
-export type PayrollStatus = 'draft' | 'confirmed' | 'paid'
-
-export interface OvertimeDetail {
-  date: string
-  hours: number
-  multiplier: number
-  amount: number
-}
-
-export interface Deduction {
-  label: string
-  amount: number
-}
+export type PayrollStatus = 'draft' | 'confirmed'
 
 export interface Payroll {
   id: number
   employeeId: number
-  employee?: Pick<Employee, 'id' | 'empNo' | 'name'>
   year: number
   month: number
   baseSalary: number
   overtimePay: number
-  totalDeductions: number
-  netSalary: number
-  status: PayrollStatus
-  overtimeDetails: OvertimeDetail[]
-  deductions: Deduction[]
+  deduction: number
+  totalSalary: number
+  overtimeHours: number
   workingDays: number
-  actualWorkingDays: number
-  leaveDays: number
-  calculatedAt: string | null
+  lateMinutes: number
+  status: PayrollStatus
+  confirmedBy: number | null
   confirmedAt: string | null
   createdAt: string
   updatedAt: string

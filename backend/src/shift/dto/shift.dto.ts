@@ -10,35 +10,25 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-/** DTO for creating a new shift type */
 export class CreateShiftTypeDto {
-  @ApiPropertyOptional({
-    description: 'Store / location ID. Omit for company-wide shift types.',
-    example: 1,
-  })
+  @ApiPropertyOptional({ description: 'Store / location ID. Omit for company-wide.', example: 1 })
   @IsOptional()
   @IsNumber()
   storeId?: number;
 
-  @ApiProperty({ description: 'Shift name', example: 'Morning Shift' })
+  @ApiProperty({ description: 'Shift name', example: '早班' })
   @IsString()
   @IsNotEmpty()
-  shiftName: string;
+  name: string;
 
-  @ApiProperty({
-    description: 'Shift start time in HH:MM format',
-    example: '09:00',
-  })
+  @ApiProperty({ description: 'Start time HH:MM', example: '09:00' })
   @IsString()
-  @Matches(/^\d{2}:\d{2}$/, { message: 'startTime must be in HH:MM format' })
+  @Matches(/^\d{2}:\d{2}$/, { message: 'startTime must be HH:MM' })
   startTime: string;
 
-  @ApiProperty({
-    description: 'Shift end time in HH:MM format',
-    example: '18:00',
-  })
+  @ApiProperty({ description: 'End time HH:MM', example: '18:00' })
   @IsString()
-  @Matches(/^\d{2}:\d{2}$/, { message: 'endTime must be in HH:MM format' })
+  @Matches(/^\d{2}:\d{2}$/, { message: 'endTime must be HH:MM' })
   endTime: string;
 
   @ApiPropertyOptional({ description: 'Break duration in minutes', example: 60 })
@@ -47,6 +37,13 @@ export class CreateShiftTypeDto {
   @Min(0)
   @Max(480)
   breakMinutes?: number;
+
+  @ApiPropertyOptional({ description: 'Tardiness grace period in minutes', example: 5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(60)
+  graceMinutes?: number;
 
   @ApiPropertyOptional({ description: 'Minimum staff required', example: 1 })
   @IsOptional()
@@ -59,11 +56,16 @@ export class CreateShiftTypeDto {
   @IsNumber()
   @Min(1)
   maxStaff?: number;
+
+  @ApiPropertyOptional({ description: 'Hex color for calendar', example: '#06b6d4' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/, { message: 'color must be a hex color like #06b6d4' })
+  color?: string;
 }
 
-/** DTO for assigning an employee to a shift */
 export class AssignShiftDto {
-  @ApiProperty({ description: 'Employee ID to assign', example: 5 })
+  @ApiProperty({ description: 'Employee ID', example: 5 })
   @IsNumber()
   employeeId: number;
 
@@ -71,24 +73,17 @@ export class AssignShiftDto {
   @IsNumber()
   shiftTypeId: number;
 
-  @ApiProperty({
-    description: 'Work date in YYYY-MM-DD format',
-    example: '2026-05-20',
-  })
+  @ApiProperty({ description: 'Work date YYYY-MM-DD', example: '2026-05-20' })
   @IsDateString()
   date: string;
 }
 
-/** DTO for publishing a week's schedule */
 export class PublishScheduleDto {
-  @ApiProperty({ description: 'Store ID to publish schedule for', example: 1 })
+  @ApiProperty({ description: 'Store ID', example: 1 })
   @IsNumber()
   storeId: number;
 
-  @ApiProperty({
-    description: 'First day of the work week (Monday) in YYYY-MM-DD format',
-    example: '2026-05-18',
-  })
+  @ApiProperty({ description: 'Week start (Monday) YYYY-MM-DD', example: '2026-05-18' })
   @IsDateString()
   weekStart: string;
 }

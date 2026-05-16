@@ -137,6 +137,16 @@ export class PayrollService {
   }
 
   /**
+   * List all payroll records for a given year/month (HR view).
+   */
+  async listPayrolls(year: number, month: number): Promise<Payroll[]> {
+    return this.payrollRepo.find({
+      where: { year, month },
+      order: { employeeId: 'ASC' },
+    });
+  }
+
+  /**
    * Retrieve a payroll record for a specific employee / year / month.
    */
   async getPayroll(

@@ -68,6 +68,22 @@ export class PayrollController {
   }
 
   /**
+   * HR lists all employees' payroll for a given month.
+   */
+  @Get('list')
+  @UseGuards(RolesGuard)
+  @Roles('hr', 'admin')
+  @ApiOperation({ summary: '全員薪資列表（HR）' })
+  @ApiQuery({ name: 'year', type: Number })
+  @ApiQuery({ name: 'month', type: Number })
+  async listPayrolls(
+    @Query('year', ParseIntPipe) year: number,
+    @Query('month', ParseIntPipe) month: number,
+  ) {
+    return this.payrollService.listPayrolls(year, month);
+  }
+
+  /**
    * HR triggers payroll calculation for an employee.
    */
   @Post('calculate')

@@ -46,16 +46,18 @@ export class ShiftService {
 
     const shiftType = this.shiftTypeRepo.create({
       storeId: dto.storeId ?? null,
-      shiftName: dto.shiftName,
+      name: dto.name,
       startTime: dto.startTime,
       endTime: dto.endTime,
       breakMinutes: dto.breakMinutes ?? 60,
+      graceMinutes: dto.graceMinutes ?? 5,
+      color: dto.color ?? '#06b6d4',
       minStaff: dto.minStaff ?? 1,
       maxStaff: dto.maxStaff ?? 10,
     });
 
     const saved = await this.shiftTypeRepo.save(shiftType);
-    this.logger.log(`Created shift type "${saved.shiftName}" (id=${saved.id})`);
+    this.logger.log(`Created shift type "${saved.name}" (id=${saved.id})`);
     return saved;
   }
 
@@ -170,6 +172,20 @@ export class ShiftService {
       })
       .orderBy('s.date', 'ASC')
       .addOrderBy('st.startTime', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Retrieve the weekly schedule for a specific employee.
+   */
+  async getMySchedule(employeeId: number, weekStart: string): Promise<ShiftSchedule[]> {
+    const weekEnd = this.addDays(weekStart, 6);
+    return this.scheduleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.shiftType', 'st')
+      .where('s.employeeId = :employeeId', { employeeId })
+      .andWhere('s.date >= :weekStart AND s.date <= :weekEnd', { weekStart, weekEnd })
+      .orderBy('s.date', 'ASC')
       .getMany();
   }
 
