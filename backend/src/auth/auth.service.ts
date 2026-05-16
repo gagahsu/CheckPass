@@ -172,6 +172,30 @@ export class AuthService {
     };
   }
 
+  async devLogin(employeeId: number): Promise<{ accessToken: string; employee: EmployeeProfile }> {
+    const employee = await this.employeeRepo.findOne({
+      where: { id: employeeId },
+      relations: ['roles'],
+    });
+    if (!employee) throw new NotFoundException(`Employee #${employeeId} not found`);
+
+    const roleNames = employee.roles.map((r) => r.name);
+    const payload: JwtPayload = { employeeId: employee.id, roles: roleNames };
+    const accessToken = this.jwtService.sign(payload);
+    return {
+      accessToken,
+      employee: {
+        id: employee.id,
+        empNo: employee.empNo,
+        name: employee.name,
+        email: employee.email,
+        lineUserId: employee.lineUserId,
+        roles: roleNames,
+        status: employee.status,
+      },
+    };
+  }
+
   async getProfile(employeeId: number): Promise<EmployeeProfile> {
     const employee = await this.employeeRepo.findOne({
       where: { id: employeeId },

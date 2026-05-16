@@ -1,12 +1,16 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   Query,
   Redirect,
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
+import { ConfigService as NestConfigService } from '@nestjs/config';
 import {
   ApiTags,
   ApiOperation,
@@ -15,6 +19,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { ParseIntPipe } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -54,6 +59,21 @@ export class AuthController {
     const { accessToken } = await this.authService.lineCallback(query.code);
     const appUrl = this.configService.get<string>('APP_URL', 'http://localhost:5173');
     return { url: `${appUrl}/login?token=${encodeURIComponent(accessToken)}` };
+  }
+
+  @Post('dev-login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '[DEV ONLY] Login as any employee by ID',
+    description: 'Returns a JWT for the given employeeId. Only works when NODE_ENV !== production.',
+  })
+  @ApiResponse({ status: 200, description: 'JWT token + employee profile' })
+  @ApiResponse({ status: 403, description: 'Not available in production' })
+  async devLogin(@Body('employeeId', ParseIntPipe) employeeId: number) {
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
+      throw new ForbiddenException('dev-login is disabled in production');
+    }
+    return this.authService.devLogin(employeeId);
   }
 
   @Get('profile')
