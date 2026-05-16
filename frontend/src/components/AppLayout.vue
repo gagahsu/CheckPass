@@ -150,6 +150,7 @@ const navItems: NavItem[] = [
   { to: '/shift', label: '班表', icon: 'pi pi-calendar' },
   { to: '/leave', label: '請假', icon: 'pi pi-calendar-times' },
   { to: '/payroll', label: '薪資', icon: 'pi pi-wallet' },
+  { to: '/bi-dashboard', label: '數據分析', icon: 'pi pi-chart-bar', roles: ['manager', 'hr', 'admin'] },
   { to: '/hr/employees', label: '員工管理', icon: 'pi pi-users', roles: ['hr', 'admin'] },
   { to: '/settings', label: '系統設定', icon: 'pi pi-cog', roles: ['admin'] }
 ]

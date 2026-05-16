@@ -61,6 +61,12 @@ const router = createRouter({
       meta: { title: '薪資 - CheckPass 打卡通', requiresAuth: true }
     },
     {
+      path: '/bi-dashboard',
+      name: 'bi-dashboard',
+      component: () => import('@/views/BiDashboardView.vue'),
+      meta: { title: '數據分析 - CheckPass 打卡通', requiresAuth: true }
+    },
+    {
       path: '/hr/employees',
       name: 'employee-list',
       component: () => import('@/views/EmployeeListView.vue'),
