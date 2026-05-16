@@ -6,75 +6,281 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CheckPass 打卡通 is a cloud-based attendance and HR management system targeting SMEs, retail stores, and field teams. It integrates LINE OA check-in, attendance tracking, shift scheduling, leave approval, payroll calculation, and employee management into a single platform.
 
-The repository is currently in the **specification phase** — no implementation code exists yet. The primary artifact is `docs/attendance-spec.md`.
+The project is **actively in development**. Full spec: [`docs/attendance-spec.md`](docs/attendance-spec.md)
 
 ## Branch Structure
 
 | Branch | Purpose |
 |--------|---------|
 | `main` | Stable releases |
-| `dev` | Integration branch for active development |
+| `dev`  | Integration branch — all feature work merges here |
 
-Feature branches should be merged into `dev`, not `main` directly.
+Always develop on `dev` or a feature branch merged into `dev`. Never push directly to `main`.
 
-## Planned Architecture
+## Actual Architecture (Implemented)
 
-All services sit behind an API Gateway. Each domain is a separate service:
+Single NestJS monolith (not microservices). All modules share one PostgreSQL database.
 
 ```
-員工端（LINE / Mobile）
+員工端（LINE LIFF / Browser / PWA）
         │
         ▼
- API Gateway
+  NestJS REST API  :3000
         │
- ├── Auth Service        — JWT, LINE Login
- ├── Attendance Service  — check-in/out, overtime, tardiness
- ├── Shift Service       — schedules, rotation, multi-store
- ├── Leave Service       — apply, approve, leave types
- ├── Payroll Service     — salary calculation, NHI deductions
- ├── Notification Service— LINE Notify, Email, Web Push
- └── HR Service          — employees, departments, positions
+  ├── /auth          — LINE Login OAuth, JWT issuance
+  ├── /hr            — employee list, detail, role assignment
+  ├── /org           — department + position CRUD
+  ├── /attendance    — check-in/out, records, summaries, workplace settings
+  ├── /shifts        — shift types, schedule, publish
+  ├── /leave         — apply, 2-stage approve, reject, cancel
+  ├── /payroll       — calculate, confirm, list
+  └── /sse           — Server-Sent Events for real-time notifications
         │
         ▼
-     Database (PostgreSQL + Redis)
+  PostgreSQL  (TypeORM 0.3)
 ```
 
-## Planned Tech Stack
+## Tech Stack
 
-**Frontend:** Vue 3, PrimeVue, Pinia, Vite
+**Backend:** NestJS 10, TypeORM 0.3, PostgreSQL, class-validator, @nestjs/schedule (Cron), axios
 
-**Backend:** Node.js / NestJS, RESTful API, Socket.IO (real-time notifications)
+**Frontend:** Vue 3, PrimeVue 4 (Aura theme), Pinia, Vue Router 4, Vite 5, TypeScript
 
-**Infrastructure:** Docker, Kubernetes, AWS / GCP
+**Third-party:** LINE Login, LINE Messaging API, Mailjet (email), Leaflet.js
 
-**Third-party:** LINE Login, LINE Messaging API, Google Maps API, SMTP
+**PWA:** manifest.json + sw.js in `frontend/public/` (no vite-plugin-pwa)
 
-## Key Domain Rules
+## Critical Rules — Read Before Editing
 
-- **Tardiness:** `check_in_time > shift_start + grace_minutes`
-- **Overtime:** `check_out_time > shift_end`
-- **Payroll formula:** `total = base_salary + overtime_pay - deductions`
-- **Overtime pay:** `hourly_rate × overtime_hours × multiplier`
-- **Leave approval flow:** Employee → Manager → HR
+### URL Paths
+- `apiClient` baseURL = `http://localhost:3000` — **no `/api` prefix** in any route path
+- Backend controller routes: `/attendance/...`, `/auth/...`, `/hr/...`, `/org/...`, `/leave/...`, `/shifts/...`, `/payroll/...`, `/sse/...`
 
-## RBAC
+### Migrations
+- All migrations live in `backend/src/database/migrations/`
+- Naming: `1716000000000-InitSchema.ts`, `1716000000001-...`, etc. (increment last 3 digits)
+- Next migration number: **009**
+- Use `IF NOT EXISTS` / `IF EXISTS` in ALTER TABLE for idempotency
 
-Roles: 員工 (Employee), 主管 (Manager), HR, 系統管理員 (Admin). Permissions are module-level with View / Create / Edit / Delete granularity.
+### TypeORM Entities
+- Use `@Column({ name: 'snake_case' })` when the TypeScript property name differs from the DB column name
+- Numeric primary keys are `bigint` in DB but `number` in TypeScript
+- Decimal columns come back as strings from PostgreSQL — wrap with `Number(...)` before arithmetic
 
-## MVP Priority (Phase 1)
+### Guards & Decorators
+```typescript
+@UseGuards(JwtAuthGuard)           // always for protected routes
+@UseGuards(RolesGuard)             // add when role restriction needed
+@Roles('hr', 'admin')              // roles: employee | manager | hr | admin
+@CurrentUser() user: JwtPayload    // { employeeId, roles, lineUserId }
+```
 
-Focus implementation in this order: LINE Login → Check-in → Attendance → Leave → Basic RBAC. Shift scheduling, payroll, and reporting come in Phase 2.
+### Frontend Auth
+```typescript
+const authStore = useAuthStore()
+authStore.hasRole('hr')            // check single role
+authStore.hasRole('admin')         // roles: employee | manager | hr | admin
+```
 
-## Performance Targets
+### Notifications
+- LINE push: `notificationService.sendLinePush(lineUserId, text)` — silently skips if `LINE_CHANNEL_ACCESS_TOKEN` not set
+- Email: `notificationService.sendEmail(to, subject, html)` — silently skips if `MAILJET_API_KEY` not set
+- Always call notification methods with `.catch(() => {})` to avoid blocking the main flow
 
-- API response < 2s
-- Check-in write < 1s
-- Concurrent users: 5,000
+## File Map
 
-## Security Requirements
+### Backend
+```
+backend/src/
+├── app.module.ts
+├── main.ts
+├── auth/
+│   ├── auth.controller.ts        GET /auth/line/login-url, /auth/line/callback, /auth/profile
+│   ├── auth.service.ts
+│   ├── auth.module.ts            — registers Employee, Role, Department, Position, OrgService, OrgController
+│   ├── hr.controller.ts          GET/PATCH /hr/employees, /hr/employees/:id, /hr/employees/:id/roles
+│   ├── hr.service.ts
+│   ├── hr.dto.ts
+│   ├── org.controller.ts         CRUD /org/departments, /org/positions
+│   ├── org.service.ts
+│   ├── org.dto.ts
+│   ├── jwt.strategy.ts
+│   └── entities/
+│       ├── employee.entity.ts
+│       ├── role.entity.ts
+│       ├── department.entity.ts
+│       └── position.entity.ts
+├── attendance/
+│   ├── attendance.controller.ts  POST check-in/out, GET records/today/summary/dashboard-stats/department-summary, CRUD /workplaces
+│   ├── attendance.service.ts
+│   ├── attendance.module.ts
+│   ├── attendance-scheduler.service.ts  — daily absent marking cron
+│   ├── dto/check-in.dto.ts       — includes CreateWorkplaceDto, UpdateWorkplaceDto
+│   └── entities/
+│       ├── attendance-record.entity.ts
+│       └── workplace-setting.entity.ts
+├── shift/
+│   ├── shift.controller.ts       GET/POST /shifts/types, /shifts/schedule, /shifts/my-schedule, DELETE, publish
+│   ├── shift.service.ts
+│   ├── shift.module.ts
+│   ├── dto/shift.dto.ts
+│   └── entities/
+│       ├── shift-type.entity.ts  — columns: name (DB: shift_name), graceMinutes, color, minStaff, maxStaff
+│       └── shift-schedule.entity.ts
+├── leave/
+│   ├── leave.controller.ts       GET types/my-requests/pending-approvals, POST apply, PATCH approve/reject/cancel
+│   ├── leave.service.ts          — approve() takes callerRoles[] for 2-stage logic
+│   ├── leave.module.ts
+│   ├── dto/leave.dto.ts
+│   └── entities/
+│       ├── leave-request.entity.ts  — status: pending|manager_approved|approved|rejected|cancelled
+│       └── leave-type.entity.ts
+├── payroll/
+│   ├── payroll.controller.ts     GET /payroll, /payroll/list, POST /payroll/calculate, /payroll/:id/confirm
+│   ├── payroll.service.ts        — confirm() triggers LINE push + email via NotificationService
+│   ├── payroll.module.ts
+│   ├── dto/payroll.dto.ts
+│   └── entities/payroll.entity.ts  — fields: baseSalary, overtimePay, nhiDeduction, laborDeduction, deduction, totalSalary
+├── notification/
+│   ├── notification.service.ts   — sendLinePush(), sendEmail(), buildPayrollEmail(), buildCheckInMessage()...
+│   └── notification.module.ts    — exports NotificationService; import this module to use notifications
+├── sse/
+│   ├── sse.controller.ts         GET /sse/stream
+│   ├── sse.service.ts
+│   └── sse.module.ts
+├── common/
+│   ├── decorators/current-user.decorator.ts
+│   ├── decorators/roles.decorator.ts
+│   ├── guards/jwt-auth.guard.ts
+│   └── guards/roles.guard.ts     — exports JwtPayload interface
+└── database/
+    ├── data-source.ts
+    ├── database.module.ts
+    └── migrations/               — 000 through 008, next is 009
+```
 
-JWT auth, HTTPS, GPS spoofing prevention, Audit Log on all mutations, logs retained 180 days.
+### Frontend
+```
+frontend/src/
+├── main.ts                       — PrimeVue setup, global components
+├── App.vue                       — RouterView + Toast + InstallPrompt + SW registration
+├── router/index.ts               — all routes with requiresAuth meta
+├── stores/
+│   ├── auth.ts                   — user, token, hasRole(), initFromStorage()
+│   └── notification.ts
+├── api/
+│   ├── index.ts                  — axios instance, baseURL: http://localhost:3000
+│   ├── attendance.ts             — checkIn/Out, getRecords, getWorkHoursSummary, getDashboardStats, getDepartmentSummary, CRUD workplaces
+│   ├── hr.ts                     — listEmployees, getEmployee, updateEmployee, assignRoles
+│   ├── org.ts                    — CRUD departments + positions
+│   ├── leave.ts                  — getLeaveTypes, apply, getMyRequests, getPendingApprovals, approve, reject, cancel
+│   ├── payroll.ts                — getPayroll, listPayrolls, calculate, confirm
+│   └── shift.ts                  — getShiftTypes, createShiftType, getSchedule, getMySchedule, assignShift, removeShift, publishSchedule
+├── types/index.ts                — all shared TypeScript interfaces
+├── components/
+│   ├── AppLayout.vue             — sidebar nav, top header, mobile menu, notification bell
+│   ├── NotificationBell.vue      — SSE-connected bell
+│   └── InstallPrompt.vue         — PWA install banner
+└── views/
+    ├── LoginView.vue
+    ├── LiffCheckinView.vue       — LINE LIFF GPS check-in page
+    ├── DashboardView.vue
+    ├── AttendanceView.vue
+    ├── ShiftView.vue             — drag-drop weekly calendar
+    ├── LeaveView.vue             — my requests + manager approve/reject
+    ├── LeaveApplyView.vue
+    ├── PayrollView.vue           — payslip + HR calculate/confirm section
+    ├── BiDashboardView.vue       — BI charts (manager/hr/admin only)
+    ├── EmployeeListView.vue
+    ├── EmployeeDetailView.vue
+    ├── OrgView.vue               — department + position CRUD (hr/admin)
+    └── SettingsView.vue          — shift types, roles display, workplace GPS settings
+```
 
-## Spec Document
+## Domain Rules
 
-Full module specs, API contracts, and data models: [`docs/attendance-spec.md`](docs/attendance-spec.md)
+### Payroll Calculation
+```
+hourly_rate   = base_salary / 176          (8h × 22 days)
+overtime_pay  = hourly_rate × ot_hours × 1.33  (Labour Standards Act Art. 24)
+nhi_deduction = base_salary × 0.01551     (健保 5.17% × 30% employee share)
+labor_deduction = base_salary × 0.024     (勞保 12% × 20% employee share)
+deduction     = nhi_deduction + labor_deduction
+total_salary  = base_salary + overtime_pay - deduction
+```
+
+### Leave Approval Flow (2-stage)
+```
+Employee applies → PENDING
+Manager approves → MANAGER_APPROVED   (LINE not sent yet)
+HR confirms      → APPROVED            (LINE push sent to employee)
+
+HR/admin can skip directly: PENDING → APPROVED
+Either stage can reject → REJECTED    (LINE push sent)
+```
+
+### GPS Check-in Validation
+- Haversine distance check against `workplace_settings.gps_radius_meters` (default 200m)
+- Speed anomaly: rejects if > 200 km/h since last check-in
+- WiFi SSID check against `workplace_settings.wifi_ssids` (comma-separated)
+
+### RBAC Sidebar Visibility
+```
+employee  — dashboard, attendance, shift, leave, payroll
+manager   — + bi-dashboard
+hr        — + bi-dashboard, employee-list, org
+admin     — + bi-dashboard, employee-list, org, settings
+```
+
+## Environment Variables
+
+Copy `backend/.env.example` to `backend/.env` and fill in:
+
+```bash
+# Database
+DATABASE_HOST / DATABASE_PORT / DATABASE_NAME / DATABASE_USER / DATABASE_PASSWORD
+
+# JWT
+JWT_SECRET                   # long random string
+JWT_EXPIRES_IN=7d
+
+# LINE Login (員工登入用)
+LINE_LOGIN_CHANNEL_ID        # LINE Developers → LINE Login channel
+LINE_LOGIN_CHANNEL_SECRET
+LINE_CALLBACK_URL            # https://your-domain/auth/line/callback
+
+# LINE Messaging API (推播通知用，不同 channel)
+LINE_CHANNEL_ACCESS_TOKEN    # LINE Developers → Messaging API channel
+LINE_CHANNEL_SECRET          # same Messaging API channel secret
+
+# Mailjet (薪資 Email)
+MAILJET_API_KEY
+MAILJET_SECRET_KEY
+MAILJET_FROM_EMAIL           # must be a verified sender in Mailjet
+MAILJET_FROM_NAME=CheckPass 打卡通
+
+# App
+PORT=3000
+APP_URL                      # frontend URL for CORS
+CORS_ORIGIN                  # same as APP_URL
+```
+
+Missing LINE/Mailjet keys cause the notification to be silently skipped — the app continues to function normally.
+
+## What's NOT Yet Implemented
+
+| Feature | Notes |
+|---------|-------|
+| QR Code 打卡 | Phase 2 spec item |
+| 排班衝突偵測 | Leave conflict, weekly hour limit warnings |
+| 排班月視圖 | Currently week-only |
+| 多門市切換 UI | storeId exists in DB, no frontend store selector |
+| 假期餘額追蹤 | No quota deduction table or balance API |
+| 附件上傳 | requiresAttachment column exists, no upload endpoint |
+| 帳號開立通知 | NotificationService ready, just needs wiring |
+| 歷史趨勢圖 | Needs backend aggregation API |
+| 報表匯出 CSV/PDF | Not implemented |
+| Audit Log 稽核表 | Logger records exist but no dedicated DB table |
+| Docker / docker-compose | backend Dockerfile exists, no compose file |
+| 壓力測試 | Not implemented |
+| 人臉辨識 / Multi-tenant / i18n | Post-MVP roadmap items |
