@@ -12,6 +12,7 @@ import { AttendanceRecord } from '../attendance/entities/attendance-record.entit
 import { Employee } from '../auth/entities/employee.entity';
 import { CalculatePayrollDto } from './dto/payroll.dto';
 import { NotificationService } from '../notification/notification.service';
+import { AuditService } from '../audit/audit.service';
 
 /** Default overtime pay rate multiplier per Taiwan Labour Standards Act Article 24 */
 const DEFAULT_OVERTIME_MULTIPLIER = 1.33;
@@ -31,6 +32,7 @@ export class PayrollService {
     @InjectRepository(Employee)
     private readonly employeeRepo: Repository<Employee>,
     private readonly notificationService: NotificationService,
+    private readonly auditService: AuditService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -49,7 +51,7 @@ export class PayrollService {
    * If a payroll record already exists for the period it is recalculated
    * (overwritten) unless its status is 'confirmed'.
    */
-  async calculate(dto: CalculatePayrollDto): Promise<Payroll> {
+  async calculate(dto: CalculatePayrollDto, actorId?: number): Promise<Payroll> {
     const { employeeId, year, month } = dto;
     const baseSalary = dto.baseSalary ?? 45_000; // Phase-0 default; replace with HR lookup
     const multiplier = dto.overtimeMultiplier ?? DEFAULT_OVERTIME_MULTIPLIER;
@@ -121,6 +123,14 @@ export class PayrollService {
       `Calculated payroll for employee #${employeeId} ${year}/${month}: ` +
         `base=${baseSalary}, ot=${overtimePay}, nhi=${nhiDeduction}, labor=${laborDeduction}, total=${totalSalary}`,
     );
+    if (actorId) {
+      void this.auditService.log(actorId, 'payroll_calculate', 'payroll', Number(saved.id), {
+        employeeId,
+        year,
+        month,
+        totalSalary,
+      });
+    }
     return saved;
   }
 
@@ -145,8 +155,12 @@ export class PayrollService {
       `HR #${hrEmployeeId} confirmed payroll #${payrollId} for employee #${payroll.employeeId}`,
     );
 
-    // Send payroll notification asynchronously
     this.afterConfirm(saved).catch(() => {});
+    void this.auditService.log(hrEmployeeId, 'payroll_confirm', 'payroll', Number(saved.id), {
+      employeeId: payroll.employeeId,
+      year: payroll.year,
+      month: payroll.month,
+    });
 
     return saved;
   }
@@ -266,5 +280,37 @@ export class PayrollService {
       );
     }
     return payroll;
+  }
+
+  async exportCsv(year: number, month: number): Promise<string> {
+    const payrolls = await this.payrollRepo.find({
+      where: { year, month },
+      order: { employeeId: 'ASC' },
+    });
+
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = [
+      'ID', '員工ID', '年', '月',
+      '底薪', '加班費', '健保扣費', '勞保扣費', '總扣款', '實領薪資',
+      '出勤天數', '加班時數', '遲到(分)', '狀態',
+    ];
+    const rows = payrolls.map((p) => [
+      p.id,
+      p.employeeId,
+      p.year,
+      p.month,
+      Number(p.baseSalary).toFixed(0),
+      Number(p.overtimePay).toFixed(0),
+      Number(p.nhiDeduction).toFixed(0),
+      Number(p.laborDeduction).toFixed(0),
+      Number(p.deduction).toFixed(0),
+      Number(p.totalSalary).toFixed(0),
+      p.workingDays,
+      Number(p.overtimeHours).toFixed(2),
+      p.lateMinutes,
+      p.status,
+    ]);
+
+    return [header.map(esc).join(','), ...rows.map((row) => row.map(esc).join(','))].join('\r\n');
   }
 }

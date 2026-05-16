@@ -5,11 +5,13 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
   ParseIntPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -100,8 +102,8 @@ export class PayrollController {
   @ApiResponse({ status: 400, description: 'Invalid period' })
   @ApiResponse({ status: 409, description: 'Payroll is already confirmed' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires HR role' })
-  async calculate(@Body() dto: CalculatePayrollDto) {
-    return this.payrollService.calculate(dto);
+  async calculate(@CurrentUser() user: JwtPayload, @Body() dto: CalculatePayrollDto) {
+    return this.payrollService.calculate(dto, user.employeeId);
   }
 
   /**
@@ -116,6 +118,28 @@ export class PayrollController {
   async getPayrollTrend(@Query('months') months?: string) {
     const n = Math.min(24, Math.max(3, parseInt(months ?? '6', 10) || 6));
     return this.payrollService.getPayrollTrend(n);
+  }
+
+  /**
+   * HR exports payroll list as CSV for a given year/month.
+   */
+  @Get('export')
+  @UseGuards(RolesGuard)
+  @Roles('hr', 'admin')
+  @ApiOperation({ summary: '匯出薪資 CSV（hr/admin）' })
+  @ApiQuery({ name: 'year',  type: Number, description: '年份', example: 2026 })
+  @ApiQuery({ name: 'month', type: Number, description: '月份（1–12）', example: 5 })
+  @ApiResponse({ status: 200, description: 'CSV 檔案下載' })
+  async exportCsv(
+    @Query('year',  ParseIntPipe) year: number,
+    @Query('month', ParseIntPipe) month: number,
+    @Res() res: Response,
+  ) {
+    const csv = await this.payrollService.exportCsv(year, month);
+    const filename = `payroll-${year}-${String(month).padStart(2, '0')}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('﻿' + csv);
   }
 
   /**

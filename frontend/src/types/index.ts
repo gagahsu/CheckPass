@@ -303,6 +303,19 @@ export interface PayrollTrendItem {
   avgSalary: number
 }
 
+// ─── Audit Log ─────────────────────────────────────────────────────────────────
+
+export interface AuditLog {
+  id: number
+  actorId: number
+  action: string
+  entityType: string
+  entityId: number | null
+  payload: Record<string, unknown> | null
+  ipAddress: string | null
+  createdAt: string
+}
+
 // ─── Notification ──────────────────────────────────────────────────────────────
 
 export type NotificationType = 'leave_approval' | 'shift_published' | 'payroll_ready' | 'general'

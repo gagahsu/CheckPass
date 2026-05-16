@@ -153,7 +153,8 @@ const navItems: NavItem[] = [
   { to: '/bi-dashboard', label: '數據分析', icon: 'pi pi-chart-bar', roles: ['manager', 'hr', 'admin'] },
   { to: '/hr/employees', label: '員工管理', icon: 'pi pi-users', roles: ['hr', 'admin'] },
   { to: '/hr/org', label: '組織管理', icon: 'pi pi-sitemap', roles: ['hr', 'admin'] },
-  { to: '/settings', label: '系統設定', icon: 'pi pi-cog', roles: ['admin'] }
+  { to: '/settings', label: '系統設定', icon: 'pi pi-cog', roles: ['admin'] },
+  { to: '/audit-logs', label: '稽核日誌', icon: 'pi pi-shield', roles: ['hr', 'admin'] }
 ]
 
 const visibleNavItems = computed(() =>

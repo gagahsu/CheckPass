@@ -89,6 +89,12 @@ const router = createRouter({
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
       meta: { title: '系統設定 - CheckPass 打卡通', requiresAuth: true }
+    },
+    {
+      path: '/audit-logs',
+      name: 'audit-logs',
+      component: () => import('@/views/AuditLogView.vue'),
+      meta: { title: '稽核日誌 - CheckPass 打卡通', requiresAuth: true }
     }
   ]
 })

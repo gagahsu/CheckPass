@@ -17,6 +17,7 @@ import { NotificationService } from '../notification/notification.service';
 import { SseService } from '../sse/sse.service';
 import { Employee } from '../auth/entities/employee.entity';
 import { ShiftSchedule } from '../shift/entities/shift-schedule.entity';
+import { AuditService } from '../audit/audit.service';
 
 /** Grace period in minutes before a check-in is flagged as late. */
 const GRACE_MINUTES = 5;
@@ -55,6 +56,7 @@ export class AttendanceService {
     private readonly shiftScheduleRepo: Repository<ShiftSchedule>,
     private readonly notificationService: NotificationService,
     private readonly sseService: SseService,
+    private readonly auditService: AuditService,
   ) {}
 
   async checkIn(employeeId: number, dto: CheckInDto): Promise<AttendanceRecord> {
@@ -142,8 +144,12 @@ export class AttendanceService {
     const saved = await this.attendanceRepo.save(record);
     this.logger.log(`Employee ${employeeId} checked in — status: ${status}, late: ${lateMinutes}m`);
 
-    // Async: LINE notification + SSE push (don't block response)
     void this.afterCheckIn(employeeId, saved);
+    void this.auditService.log(employeeId, 'check_in', 'attendance', Number(saved.id), {
+      type: dto.type,
+      status,
+      lateMinutes,
+    });
 
     return saved;
   }
@@ -185,6 +191,10 @@ export class AttendanceService {
     this.logger.log(`Employee ${employeeId} checked out — overtime: ${overtimeHours}h`);
 
     void this.afterCheckOut(employeeId, saved);
+    void this.auditService.log(employeeId, 'check_out', 'attendance', Number(saved.id), {
+      status: record.status,
+      overtimeHours,
+    });
 
     return saved;
   }
@@ -266,6 +276,47 @@ export class AttendanceService {
       lateCount: records.filter((r) => r.lateMinutes > GRACE_MINUTES).length,
       records: enriched,
     };
+  }
+
+  async exportCsv(
+    employeeId: number,
+    query: { startDate?: string; endDate?: string },
+    includeAll: boolean,
+  ): Promise<string> {
+    const where: FindManyOptions<AttendanceRecord>['where'] = includeAll ? {} : { employeeId };
+
+    if (query.startDate && query.endDate) {
+      (where as Record<string, unknown>)['checkInTime'] = Between(
+        new Date(`${query.startDate}T00:00:00`),
+        new Date(`${query.endDate}T23:59:59`),
+      );
+    }
+
+    const records = await this.attendanceRepo.find({
+      where,
+      order: { checkInTime: 'DESC' },
+      take: 10_000,
+    });
+
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const fmt = (d: Date | null) =>
+      d ? d.toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }) : '';
+
+    const header = ['ID', '員工ID', '日期', '上班時間', '下班時間', '狀態', '遲到(分)', '加班時數', '打卡類型', '備註'];
+    const rows = records.map((r) => [
+      r.id,
+      r.employeeId,
+      r.checkInTime ? r.checkInTime.toISOString().slice(0, 10) : '',
+      fmt(r.checkInTime),
+      fmt(r.checkOutTime),
+      r.status,
+      r.lateMinutes,
+      Number(r.overtimeHours).toFixed(2),
+      r.type,
+      r.note ?? '',
+    ]);
+
+    return [header.map(esc).join(','), ...rows.map((row) => row.map(esc).join(','))].join('\r\n');
   }
 
   // ---------------------------------------------------------------------------

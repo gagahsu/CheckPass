@@ -7,11 +7,13 @@ import {
   Body,
   Query,
   Param,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
   ParseIntPipe,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -107,6 +109,34 @@ export class AttendanceController {
   async getAttendanceTrend(@Query('days') days?: string) {
     const n = Math.min(90, Math.max(7, parseInt(days ?? '30', 10) || 30));
     return this.attendanceService.getAttendanceTrend(n);
+  }
+
+  @Get('export')
+  @ApiOperation({ summary: '匯出出勤記錄 CSV（員工自己；hr/admin 可加 all=true）' })
+  @ApiQuery({ name: 'startDate', required: false, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'endDate',   required: false, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'all',       required: false, description: 'hr/admin 只傳 true 才會匯出全員' })
+  @ApiResponse({ status: 200, description: 'CSV 檔案下載' })
+  async exportCsv(
+    @CurrentUser() user: JwtPayload,
+    @Query('startDate') startDate?: string,
+    @Query('endDate')   endDate?: string,
+    @Query('all')       all?: string,
+    @Res() res?: Response,
+  ) {
+    const isHrAdmin = user.roles.some((r) => ['hr', 'admin'].includes(r));
+    const includeAll = isHrAdmin && all === 'true';
+
+    const csv = await this.attendanceService.exportCsv(
+      user.employeeId,
+      { startDate, endDate },
+      includeAll,
+    );
+
+    const filename = `attendance-${new Date().toISOString().slice(0, 10)}.csv`;
+    res!.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res!.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res!.send('﻿' + csv); // BOM for Excel UTF-8
   }
 
   // ─── Workplace Settings (admin) ──────────────────────────────────────────────

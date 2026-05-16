@@ -8,6 +8,7 @@ import { LeaveModule } from './leave/leave.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { SseModule } from './sse/sse.module';
 import { NotificationModule } from './notification/notification.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { NotificationModule } from './notification/notification.module';
     PayrollModule,
     SseModule,
     NotificationModule,
+    AuditModule,
   ],
 })
 export class AppModule {}

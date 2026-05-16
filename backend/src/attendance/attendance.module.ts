@@ -10,6 +10,7 @@ import { Employee } from '../auth/entities/employee.entity';
 import { ShiftSchedule } from '../shift/entities/shift-schedule.entity';
 import { NotificationModule } from '../notification/notification.module';
 import { SseModule } from '../sse/sse.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { SseModule } from '../sse/sse.module';
     TypeOrmModule.forFeature([AttendanceRecord, WorkplaceSetting, Employee, ShiftSchedule]),
     NotificationModule,
     SseModule,
+    AuditModule,
   ],
   controllers: [AttendanceController],
   providers: [AttendanceService, AttendanceSchedulerService],

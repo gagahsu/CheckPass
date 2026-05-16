@@ -58,6 +58,7 @@
             </div>
             <Button label="查詢" icon="pi pi-search" @click="loadRecords" :loading="loading" />
             <Button label="重置" icon="pi pi-refresh" severity="secondary" @click="resetFilter" />
+            <Button label="匯出 CSV" icon="pi pi-download" severity="secondary" @click="handleExport" :loading="exporting" />
           </div>
         </template>
       </Card>
@@ -134,8 +135,11 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import { attendanceApi } from '@/api/attendance'
+import { useAuthStore } from '@/stores/auth'
 import type { AttendanceRecord, AttendanceStatus, WorkHoursSummary } from '@/types'
 import AppLayout from '@/components/AppLayout.vue'
+
+const authStore = useAuthStore()
 
 const records = ref<AttendanceRecord[]>([])
 const loading = ref(false)
@@ -159,6 +163,7 @@ const summaryItems = computed(() => [
 const filterStartDate = ref('')
 const filterEndDate = ref('')
 const filterStatus = ref('')
+const exporting = ref(false)
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
@@ -214,6 +219,28 @@ function resetFilter(): void {
   filterStatus.value = ''
   page.value = 1
   loadRecords()
+}
+
+async function handleExport(): Promise<void> {
+  exporting.value = true
+  try {
+    const isHrAdmin = authStore.hasRole('hr') || authStore.hasRole('admin')
+    const blob = await attendanceApi.exportCsv({
+      startDate: filterStartDate.value || undefined,
+      endDate: filterEndDate.value || undefined,
+      all: isHrAdmin || undefined,
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `attendance-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    // silently ignore
+  } finally {
+    exporting.value = false
+  }
 }
 
 function onPage(event: { page: number }): void {

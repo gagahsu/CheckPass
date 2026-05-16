@@ -35,4 +35,10 @@ export const payrollApi = {
       .get<PayrollTrendItem[]>('/payroll/trend', { params: { months } })
       .then((r) => r.data)
   },
+
+  exportCsv(year: number, month: number): Promise<Blob> {
+    return apiClient
+      .get('/payroll/export', { params: { year, month }, responseType: 'blob' })
+      .then((r) => r.data as Blob)
+  },
 }

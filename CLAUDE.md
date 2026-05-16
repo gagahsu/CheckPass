@@ -59,7 +59,7 @@ Single NestJS monolith (not microservices). All modules share one PostgreSQL dat
 ### Migrations
 - All migrations live in `backend/src/database/migrations/`
 - Naming: `1716000000000-InitSchema.ts`, `1716000000001-...`, etc. (increment last 3 digits)
-- Next migration number: **009**
+- Next migration number: **011**
 - Use `IF NOT EXISTS` / `IF EXISTS` in ALTER TABLE for idempotency
 
 ### TypeORM Entities
@@ -272,15 +272,10 @@ Missing LINE/Mailjet keys cause the notification to be silently skipped — the 
 | Feature | Notes |
 |---------|-------|
 | QR Code 打卡 | Phase 2 spec item |
-| 排班衝突偵測 | Leave conflict, weekly hour limit warnings |
-| 排班月視圖 | Currently week-only |
-| 多門市切換 UI | storeId exists in DB, no frontend store selector |
-| 假期餘額追蹤 | No quota deduction table or balance API |
-| 附件上傳 | requiresAttachment column exists, no upload endpoint |
-| 帳號開立通知 | NotificationService ready, just needs wiring |
-| 歷史趨勢圖 | Needs backend aggregation API |
-| 報表匯出 CSV/PDF | Not implemented |
-| Audit Log 稽核表 | Logger records exist but no dedicated DB table |
+| WiFi 打卡獨立流程 | SSID check exists in GPS path; no dedicated WiFi-only check-in UI |
+| 排班衝突：低於最少人數警示 | minStaff stored, no UI indicator |
+| 排班衝突：週工時上限警告 | Not computed or shown |
+| 報表匯出 PDF | CSV implemented; PDF not |
 | Docker / docker-compose | backend Dockerfile exists, no compose file |
-| 壓力測試 | Not implemented |
+| 壓力測試 | Phase 3 |
 | 人臉辨識 / Multi-tenant / i18n | Post-MVP roadmap items |

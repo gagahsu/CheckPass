@@ -65,4 +65,10 @@ export const attendanceApi = {
       .get<AttendanceTrendItem[]>('/attendance/trend', { params: { days } })
       .then((r) => r.data)
   },
+
+  exportCsv(params: { startDate?: string; endDate?: string; all?: boolean }): Promise<Blob> {
+    return apiClient
+      .get('/attendance/export', { params, responseType: 'blob' })
+      .then((r) => r.data as Blob)
+  },
 }

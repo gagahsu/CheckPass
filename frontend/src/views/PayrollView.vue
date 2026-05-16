@@ -155,6 +155,13 @@
               :loading="batchNotifying"
               @click="handleBatchNotify"
             />
+            <Button
+              label="匯出 CSV"
+              icon="pi pi-download"
+              severity="secondary"
+              :loading="exporting"
+              @click="handleExport"
+            />
             <span class="batch-hint">發送本月所有已確認薪資的 LINE & Email 通知</span>
           </div>
           <div v-if="hrError" class="hr-error">{{ hrError }}</div>
@@ -193,6 +200,7 @@ const hrError = ref<string | null>(null)
 const hrEmployeeId = ref<number | ''>('')
 const hrBaseSalary = ref<number | ''>(45000)
 const batchNotifying = ref(false)
+const exporting = ref(false)
 
 const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
@@ -276,6 +284,23 @@ async function handleBatchNotify(): Promise<void> {
     hrError.value = '發送失敗，請確認是否有已確認薪資記錄'
   } finally {
     batchNotifying.value = false
+  }
+}
+
+async function handleExport(): Promise<void> {
+  exporting.value = true
+  try {
+    const blob = await payrollApi.exportCsv(selectedYear.value, selectedMonth.value)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `payroll-${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    hrError.value = '匯出失敗，請稍後再試'
+  } finally {
+    exporting.value = false
   }
 }
 
