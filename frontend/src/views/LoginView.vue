@@ -79,30 +79,20 @@ function handleTokenLogin(token: string): void {
   }
 }
 
-function handleLineLogin(): void {
+async function handleLineLogin(): Promise<void> {
   loading.value = true
   error.value = null
 
-  const channelId = import.meta.env.VITE_LINE_LOGIN_CHANNEL_ID as string
-  if (!channelId) {
-    error.value = 'LINE Login 尚未設定，請聯絡管理員'
+  try {
+    const redirectPath = (route.query.redirect as string) || '/dashboard'
+    const res = await fetch(`/api/auth/line/login-url?redirect=${encodeURIComponent(redirectPath)}`)
+    if (!res.ok) throw new Error('Failed to get login URL')
+    const { url } = await res.json() as { url: string }
+    window.location.href = url
+  } catch {
+    error.value = 'LINE Login 暫時無法使用，請稍後再試'
     loading.value = false
-    return
   }
-
-  const redirectUri = `${window.location.origin}/login`
-  const state = Math.random().toString(36).substring(2)
-  const scope = 'profile openid email'
-
-  const lineAuthUrl =
-    `https://access.line.me/oauth2/v2.1/authorize` +
-    `?response_type=code` +
-    `&client_id=${encodeURIComponent(channelId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&state=${encodeURIComponent(state)}` +
-    `&scope=${encodeURIComponent(scope)}`
-
-  window.location.href = lineAuthUrl
 }
 </script>
 

@@ -2,15 +2,13 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
+import { Employee } from './entities/employee.entity';
+import { Role } from './entities/role.entity';
 
-/**
- * Authentication module.
- * Uses axios directly (bundled as a project dependency) for LINE API calls
- * rather than @nestjs/axios to keep the dependency surface minimal.
- */
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
@@ -19,14 +17,13 @@ import { JwtStrategy } from './jwt.strategy';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('JWT_SECRET', 'fallback-secret'),
-        signOptions: {
-          expiresIn: config.get<string>('JWT_EXPIRES_IN', '7d'),
-        },
+        signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN', '7d') },
       }),
     }),
+    TypeOrmModule.forFeature([Employee, Role]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
-  exports: [JwtModule, PassportModule],
+  exports: [JwtModule, PassportModule, TypeOrmModule],
 })
 export class AuthModule {}
