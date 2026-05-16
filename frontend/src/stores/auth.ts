@@ -16,8 +16,9 @@ const USER_KEY = 'checkpass_user'
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const base64 = token.split('.')[1]
-    const decoded = atob(base64.replace(/-/g, '+').replace(/_/g, '/'))
-    return JSON.parse(decoded) as Record<string, unknown>
+    const binary = atob(base64.replace(/-/g, '+').replace(/_/g, '/'))
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+    return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>
   } catch {
     return null
   }
@@ -35,9 +36,9 @@ export const useAuthStore = defineStore('auth', () => {
 
     token.value = newToken
     user.value = {
-      id: payload.sub as number,
-      name: payload.name as string,
-      empNo: payload.empNo as string,
+      id: (payload.employeeId ?? payload.sub) as number,
+      name: (payload.name as string) ?? '',
+      empNo: (payload.empNo as string) ?? '',
       roles: (payload.roles as RoleName[]) ?? [],
       lineUserId: (payload.lineUserId as string | null) ?? null
     }

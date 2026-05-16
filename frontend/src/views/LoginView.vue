@@ -37,6 +37,25 @@
           <p class="login-hint">
             使用您的 LINE 帳號安全登入，無需另外設定密碼
           </p>
+
+          <div v-if="isDev" class="dev-login-section">
+            <p class="dev-label">開發模式快速登入</p>
+            <div class="dev-input-row">
+              <InputText
+                v-model="devEmployeeId"
+                placeholder="Employee ID"
+                type="number"
+                class="dev-input"
+              />
+              <Button
+                label="登入"
+                :loading="devLoading"
+                class="dev-btn"
+                @click="handleDevLogin"
+              />
+            </div>
+            <p v-if="devError" class="dev-error">{{ devError }}</p>
+          </div>
         </div>
       </template>
     </Card>
@@ -48,6 +67,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -56,6 +76,11 @@ const authStore = useAuthStore()
 
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+const isDev = import.meta.env.DEV
+const devEmployeeId = ref('1')
+const devLoading = ref(false)
+const devError = ref<string | null>(null)
 
 onMounted(() => {
   // Handle token from OAuth callback
@@ -76,6 +101,27 @@ function handleTokenLogin(token: string): void {
     error.value = '登入失敗，Token 無效，請重新嘗試'
   } finally {
     loading.value = false
+  }
+}
+
+async function handleDevLogin(): Promise<void> {
+  devLoading.value = true
+  devError.value = null
+  try {
+    const res = await fetch('http://localhost:3000/auth/dev-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeId: Number(devEmployeeId.value) })
+    })
+    if (!res.ok) throw new Error('dev-login failed')
+    const data = await res.json() as { accessToken: string; employee: { id: number; name: string; empNo: string; roles: string[]; lineUserId: string | null } }
+    authStore.login(data.accessToken)
+    const redirect = (route.query.redirect as string) || '/dashboard'
+    router.push(redirect)
+  } catch {
+    devError.value = '登入失敗，請確認 Employee ID 是否存在'
+  } finally {
+    devLoading.value = false
   }
 }
 
@@ -197,5 +243,39 @@ async function handleLineLogin(): Promise<void> {
   color: #9ca3af;
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+.dev-login-section {
+  width: 100%;
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dev-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.dev-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dev-input {
+  flex: 1;
+}
+
+.dev-btn {
+  white-space: nowrap;
+}
+
+.dev-error {
+  font-size: 0.8rem;
+  color: #dc2626;
+  text-align: center;
 }
 </style>

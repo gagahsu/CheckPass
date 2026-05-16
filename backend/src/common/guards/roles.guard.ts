@@ -10,6 +10,9 @@ import { ROLES_KEY } from '../decorators/roles.decorator';
 export interface JwtPayload {
   employeeId: number;
   roles: string[];
+  name?: string;
+  empNo?: string;
+  lineUserId?: string | null;
   iat?: number;
   exp?: number;
 }

@@ -155,7 +155,13 @@ export class AuthService {
 
     // 4. Sign JWT
     const roleNames = employee.roles.map((r) => r.name);
-    const payload: JwtPayload = { employeeId: employee.id, roles: roleNames };
+    const payload: JwtPayload = {
+      employeeId: employee.id,
+      roles: roleNames,
+      name: employee.name,
+      empNo: employee.empNo,
+      lineUserId: employee.lineUserId,
+    };
     const accessToken = this.jwtService.sign(payload);
 
     return {
@@ -180,7 +186,13 @@ export class AuthService {
     if (!employee) throw new NotFoundException(`Employee #${employeeId} not found`);
 
     const roleNames = employee.roles.map((r) => r.name);
-    const payload: JwtPayload = { employeeId: employee.id, roles: roleNames };
+    const payload: JwtPayload = {
+      employeeId: employee.id,
+      roles: roleNames,
+      name: employee.name,
+      empNo: employee.empNo,
+      lineUserId: employee.lineUserId,
+    };
     const accessToken = this.jwtService.sign(payload);
     return {
       accessToken,
