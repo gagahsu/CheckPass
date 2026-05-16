@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { HttpModule } from '@nestjs/axios';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 
-// We avoid importing HttpModule from @nestjs/axios by using axios directly,
-// but we still need TypeORM repositories. We'll use a plain axios call in the service.
-
+/**
+ * Authentication module.
+ * Uses axios directly (bundled as a project dependency) for LINE API calls
+ * rather than @nestjs/axios to keep the dependency surface minimal.
+ */
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),

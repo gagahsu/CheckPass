@@ -1,0 +1,302 @@
+<template>
+  <AppLayout>
+    <div class="leave-apply-page">
+      <div class="page-header">
+        <Button icon="pi pi-arrow-left" text severity="secondary" @click="router.back()" />
+        <h2 class="page-title">申請假單</h2>
+      </div>
+
+      <Card class="form-card">
+        <template #content>
+          <form class="leave-form" @submit.prevent="handleSubmit">
+            <!-- Leave Type -->
+            <div class="form-group">
+              <label for="leaveType" class="form-label">假別 <span class="required">*</span></label>
+              <select
+                id="leaveType"
+                v-model="form.leaveTypeId"
+                class="p-inputtext form-select"
+                :class="{ 'p-invalid': errors.leaveTypeId }"
+                required
+              >
+                <option value="" disabled>請選擇假別</option>
+                <option
+                  v-for="lt in leaveTypes"
+                  :key="lt.id"
+                  :value="lt.id"
+                >
+                  {{ lt.displayName }}{{ lt.isPaid ? '' : '（無薪）' }}
+                </option>
+              </select>
+              <small v-if="errors.leaveTypeId" class="error-text">{{ errors.leaveTypeId }}</small>
+            </div>
+
+            <!-- Date Range -->
+            <div class="form-row">
+              <div class="form-group">
+                <label for="startDate" class="form-label">開始日期 <span class="required">*</span></label>
+                <InputText
+                  id="startDate"
+                  v-model="form.startDate"
+                  type="date"
+                  :class="{ 'p-invalid': errors.startDate }"
+                  required
+                />
+                <small v-if="errors.startDate" class="error-text">{{ errors.startDate }}</small>
+              </div>
+              <div class="form-group">
+                <label for="endDate" class="form-label">結束日期 <span class="required">*</span></label>
+                <InputText
+                  id="endDate"
+                  v-model="form.endDate"
+                  type="date"
+                  :class="{ 'p-invalid': errors.endDate }"
+                  required
+                />
+                <small v-if="errors.endDate" class="error-text">{{ errors.endDate }}</small>
+              </div>
+            </div>
+
+            <!-- Days count -->
+            <div v-if="form.startDate && form.endDate && dayCount > 0" class="days-hint">
+              <i class="pi pi-calendar"></i>
+              請假天數：{{ dayCount }} 天
+            </div>
+
+            <!-- Reason -->
+            <div class="form-group">
+              <label for="reason" class="form-label">事由 <span class="required">*</span></label>
+              <textarea
+                id="reason"
+                v-model="form.reason"
+                class="p-inputtext form-textarea"
+                :class="{ 'p-invalid': errors.reason }"
+                rows="4"
+                placeholder="請填寫請假事由..."
+                required
+              ></textarea>
+              <small v-if="errors.reason" class="error-text">{{ errors.reason }}</small>
+            </div>
+
+            <!-- Global error -->
+            <div v-if="submitError" class="submit-error">
+              <i class="pi pi-exclamation-triangle"></i>
+              {{ submitError }}
+            </div>
+
+            <!-- Actions -->
+            <div class="form-actions">
+              <Button
+                type="button"
+                label="取消"
+                severity="secondary"
+                @click="router.back()"
+              />
+              <Button
+                type="submit"
+                label="送出申請"
+                icon="pi pi-send"
+                :loading="submitting"
+              />
+            </div>
+          </form>
+        </template>
+      </Card>
+    </div>
+  </AppLayout>
+</template>
+
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useToast } from 'primevue/usetoast'
+import Card from 'primevue/card'
+import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
+import { leaveApi } from '@/api/leave'
+import type { LeaveType } from '@/types'
+import AppLayout from '@/components/AppLayout.vue'
+
+const router = useRouter()
+const toast = useToast()
+
+// Hardcoded leave types for Phase 0 (would come from API in Phase 2)
+const leaveTypes: LeaveType[] = [
+  { id: 1, name: 'annual', displayName: '特休', isPaid: true, requiresAttachment: false, maxDaysPerYear: 14 },
+  { id: 2, name: 'sick', displayName: '病假', isPaid: true, requiresAttachment: false, maxDaysPerYear: 30 },
+  { id: 3, name: 'personal', displayName: '事假', isPaid: false, requiresAttachment: false, maxDaysPerYear: 14 },
+  { id: 4, name: 'maternity', displayName: '產假', isPaid: true, requiresAttachment: true, maxDaysPerYear: null },
+  { id: 5, name: 'paternity', displayName: '陪產假', isPaid: true, requiresAttachment: true, maxDaysPerYear: null },
+  { id: 6, name: 'bereavement', displayName: '喪假', isPaid: true, requiresAttachment: true, maxDaysPerYear: null },
+  { id: 7, name: 'other', displayName: '其他', isPaid: false, requiresAttachment: false, maxDaysPerYear: null }
+]
+
+const form = ref({
+  leaveTypeId: '' as number | '',
+  startDate: '',
+  endDate: '',
+  reason: ''
+})
+
+const errors = ref<Record<string, string>>({})
+const submitting = ref(false)
+const submitError = ref<string | null>(null)
+
+const dayCount = computed(() => {
+  if (!form.value.startDate || !form.value.endDate) return 0
+  const start = new Date(form.value.startDate)
+  const end = new Date(form.value.endDate)
+  if (end < start) return 0
+  const diff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+  return diff
+})
+
+function validate(): boolean {
+  const errs: Record<string, string> = {}
+  if (!form.value.leaveTypeId) errs.leaveTypeId = '請選擇假別'
+  if (!form.value.startDate) errs.startDate = '請選擇開始日期'
+  if (!form.value.endDate) errs.endDate = '請選擇結束日期'
+  if (form.value.startDate && form.value.endDate && form.value.endDate < form.value.startDate) {
+    errs.endDate = '結束日期不能早於開始日期'
+  }
+  if (!form.value.reason.trim()) errs.reason = '請填寫請假事由'
+  errors.value = errs
+  return Object.keys(errs).length === 0
+}
+
+async function handleSubmit(): Promise<void> {
+  if (!validate()) return
+  submitting.value = true
+  submitError.value = null
+  try {
+    await leaveApi.apply({
+      leaveTypeId: form.value.leaveTypeId as number,
+      startDate: form.value.startDate,
+      endDate: form.value.endDate,
+      reason: form.value.reason.trim()
+    })
+    toast.add({
+      severity: 'success',
+      summary: '申請成功',
+      detail: '假單已送出，等待主管審核',
+      life: 4000
+    })
+    router.push('/leave')
+  } catch {
+    submitError.value = '申請失敗，請稍後再試'
+  } finally {
+    submitting.value = false
+  }
+}
+</script>
+
+<style scoped>
+.leave-apply-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 640px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.form-card {
+  border-radius: 12px;
+}
+
+.leave-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.form-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.required {
+  color: #ef4444;
+}
+
+.form-select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.error-text {
+  color: #ef4444;
+  font-size: 0.8rem;
+}
+
+.days-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: #e0f2fe;
+  color: #0284c7;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.submit-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 8px;
+  font-size: 0.875rem;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+@media (max-width: 480px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
