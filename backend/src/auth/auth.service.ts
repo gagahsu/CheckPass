@@ -12,6 +12,7 @@ import axios from 'axios';
 import { Employee } from './entities/employee.entity';
 import { Role } from './entities/role.entity';
 import { JwtPayload } from '../common/guards/roles.guard';
+import { NotificationService } from '../notification/notification.service';
 
 interface LineTokenResponse {
   access_token: string;
@@ -48,6 +49,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     @InjectRepository(Employee) private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
+    private readonly notificationService: NotificationService,
   ) {}
 
   getLineLoginUrl(redirectPath = '/dashboard'): string {
@@ -141,6 +143,10 @@ export class AuthService {
         relations: ['roles'],
       }) as Employee;
       this.logger.log(`Created employee ${empNo} for LINE user ${profile.userId}`);
+
+      // Send LINE welcome notification asynchronously
+      const welcomeText = this.notificationService.buildWelcomeLinePush(employee.name, empNo);
+      this.notificationService.sendLinePush(profile.userId, welcomeText).catch(() => {});
     }
 
     if (employee.status !== 'active') {

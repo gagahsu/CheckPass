@@ -61,6 +61,39 @@ export class NotificationService {
     return `${name} 您好！\n您的${leaveType}申請 ${result}`;
   }
 
+  buildWelcomeLinePush(name: string, empNo: string): string {
+    return `歡迎加入！🎉\n${name} 您好，您的 CheckPass 帳號已開立。\n員工編號：${empNo}\n請透過 LINE 登入系統查看班表與打卡記錄。`;
+  }
+
+  buildWelcomeEmail(name: string, empNo: string, appUrl: string): string {
+    return `
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+      <h2 style="color:#0284c7">歡迎使用 CheckPass 打卡通 🎉</h2>
+      <p>${name} 您好，</p>
+      <p>您的帳號已由 HR 建立，以下為您的帳號資訊：</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0">
+        <tr style="background:#f3f4f6">
+          <td style="padding:8px 12px;font-weight:700">項目</td>
+          <td style="padding:8px 12px;font-weight:700">內容</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 12px;border-top:1px solid #e5e7eb">姓名</td>
+          <td style="padding:8px 12px;border-top:1px solid #e5e7eb">${name}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 12px;border-top:1px solid #e5e7eb">員工編號</td>
+          <td style="padding:8px 12px;border-top:1px solid #e5e7eb">${empNo}</td>
+        </tr>
+      </table>
+      <p>請至以下網址，使用 LINE 帳號登入系統：</p>
+      <p style="margin:16px 0">
+        <a href="${appUrl}" style="display:inline-block;background:linear-gradient(135deg,#06b6d4,#0284c7);color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:700">前往登入</a>
+      </p>
+      <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb">
+      <p style="color:#9ca3af;font-size:0.8em">此郵件由 CheckPass 打卡通自動發送，請勿直接回覆。</p>
+    </div>`;
+  }
+
   async sendEmail(to: string, subject: string, htmlBody: string): Promise<void> {
     const apiKey = this.configService.get<string>('MAILJET_API_KEY', '');
     const secretKey = this.configService.get<string>('MAILJET_SECRET_KEY', '');

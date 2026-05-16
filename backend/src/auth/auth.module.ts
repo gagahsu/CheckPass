@@ -14,6 +14,7 @@ import { Department } from './entities/department.entity';
 import { Position } from './entities/position.entity';
 import { OrgService } from './org.service';
 import { OrgController } from './org.controller';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { OrgController } from './org.controller';
       }),
     }),
     TypeOrmModule.forFeature([Employee, Role, Department, Position]),
+    NotificationModule,
   ],
   controllers: [AuthController, HrController, OrgController],
   providers: [AuthService, HrService, JwtStrategy, OrgService],

@@ -2,6 +2,15 @@ import apiClient from './index'
 import type { Employee, PagedResponse, RoleName } from '@/types'
 
 export const hrApi = {
+  createEmployee(data: {
+    name: string
+    email?: string
+    hireDate?: string
+    roleNames?: RoleName[]
+  }): Promise<Employee> {
+    return apiClient.post<Employee>('/hr/employees', data).then((r) => r.data)
+  },
+
   listEmployees(params?: {
     page?: number
     pageSize?: number

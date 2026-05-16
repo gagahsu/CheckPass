@@ -3,7 +3,51 @@
     <div class="employee-list-page">
       <div class="page-header">
         <h2 class="page-title">員工管理</h2>
+        <Button
+          v-if="canCreate"
+          label="新增員工"
+          icon="pi pi-plus"
+          @click="openCreateDialog"
+        />
       </div>
+
+      <!-- Create Employee Dialog -->
+      <Dialog
+        v-model:visible="showCreateDialog"
+        header="新增員工"
+        :modal="true"
+        :style="{ width: '420px' }"
+      >
+        <div class="create-form">
+          <div class="form-group">
+            <label class="form-label">姓名 <span class="required">*</span></label>
+            <InputText v-model="createForm.name" placeholder="王小明" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <InputText v-model="createForm.email" type="email" placeholder="employee@company.com" class="w-full" />
+            <p class="form-hint">建立後自動發送歡迎 Email</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">到職日期</label>
+            <InputText v-model="createForm.hireDate" type="date" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">角色</label>
+            <div class="role-checks">
+              <label v-for="r in allRoles" :key="r.value" class="role-check-item">
+                <input type="checkbox" :value="r.value" v-model="createForm.roleNames" />
+                {{ r.label }}
+              </label>
+            </div>
+          </div>
+          <div v-if="createError" class="create-error">{{ createError }}</div>
+        </div>
+        <template #footer>
+          <Button label="取消" severity="secondary" @click="showCreateDialog = false" />
+          <Button label="建立並通知" icon="pi pi-send" :loading="creating" @click="handleCreate" />
+        </template>
+      </Dialog>
 
       <!-- Search -->
       <Card class="search-card">
@@ -108,26 +152,72 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import Dialog from 'primevue/dialog'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import Avatar from 'primevue/avatar'
 import { hrApi } from '@/api/hr'
 import type { Employee, EmployeeStatus, RoleName } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
 
 const router = useRouter()
+const authStore = useAuthStore()
+const canCreate = computed(() => authStore.hasRole('hr') || authStore.hasRole('admin'))
 
 const employees = ref<Employee[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const searchQuery = ref('')
 const filterStatus = ref('')
+
+// ─── Create dialog ────────────────────────────────────────────────────────────
+const showCreateDialog = ref(false)
+const creating = ref(false)
+const createError = ref<string | null>(null)
+const createForm = ref({ name: '', email: '', hireDate: '', roleNames: ['employee'] as RoleName[] })
+
+const allRoles: { value: RoleName; label: string }[] = [
+  { value: 'employee', label: '員工' },
+  { value: 'manager', label: '主管' },
+  { value: 'hr', label: 'HR' },
+  { value: 'admin', label: '管理員' },
+]
+
+function openCreateDialog(): void {
+  createForm.value = { name: '', email: '', hireDate: '', roleNames: ['employee'] }
+  createError.value = null
+  showCreateDialog.value = true
+}
+
+async function handleCreate(): Promise<void> {
+  if (!createForm.value.name.trim()) {
+    createError.value = '請輸入姓名'
+    return
+  }
+  creating.value = true
+  createError.value = null
+  try {
+    await hrApi.createEmployee({
+      name: createForm.value.name.trim(),
+      email: createForm.value.email.trim() || undefined,
+      hireDate: createForm.value.hireDate || undefined,
+      roleNames: createForm.value.roleNames,
+    })
+    showCreateDialog.value = false
+    await loadEmployees()
+  } catch {
+    createError.value = '建立失敗，請確認資料後再試'
+  } finally {
+    creating.value = false
+  }
+}
 
 function statusLabel(status: EmployeeStatus): string {
   const map: Record<EmployeeStatus, string> = {
@@ -277,5 +367,56 @@ onMounted(() => {
 .empty-state i {
   font-size: 2.5rem;
   color: #d1d5db;
+}
+
+.create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.required { color: #ef4444; }
+
+.form-hint {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.w-full { width: 100%; }
+
+.role-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.role-check-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: #374151;
+  cursor: pointer;
+}
+
+.create-error {
+  padding: 0.6rem 1rem;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 6px;
+  font-size: 0.875rem;
 }
 </style>

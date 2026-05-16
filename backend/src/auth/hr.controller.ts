@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Param,
   Body,
@@ -8,6 +9,8 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,7 +23,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { HrService } from './hr.service';
-import { UpdateEmployeeDto, AssignRolesDto } from './dto/hr.dto';
+import { CreateEmployeeDto, UpdateEmployeeDto, AssignRolesDto } from './dto/hr.dto';
 
 @ApiTags('hr')
 @ApiBearerAuth('JWT')
@@ -28,6 +31,16 @@ import { UpdateEmployeeDto, AssignRolesDto } from './dto/hr.dto';
 @Controller('hr')
 export class HrController {
   constructor(private readonly hrService: HrService) {}
+
+  @Post('employees')
+  @Roles('hr', 'admin')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: '手動新增員工（HR）' })
+  @ApiResponse({ status: 201, description: '員工建立成功，已發送帳號開立通知' })
+  @ApiResponse({ status: 403, description: '需要 HR 或管理員權限' })
+  async createEmployee(@Body() dto: CreateEmployeeDto) {
+    return this.hrService.createEmployee(dto);
+  }
 
   @Get('employees')
   @Roles('manager', 'hr', 'admin')

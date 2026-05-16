@@ -5,9 +5,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Employee } from './entities/employee.entity';
 import { Role } from './entities/role.entity';
-import { UpdateEmployeeDto, AssignRolesDto } from './dto/hr.dto';
+import { UpdateEmployeeDto, AssignRolesDto, CreateEmployeeDto } from './dto/hr.dto';
+import { NotificationService } from '../notification/notification.service';
 
 export interface EmployeeRow {
   id: number;
@@ -31,7 +33,56 @@ export class HrService {
     private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
+    private readonly notificationService: NotificationService,
+    private readonly configService: ConfigService,
   ) {}
+
+  async createEmployee(dto: CreateEmployeeDto): Promise<EmployeeRow> {
+    const count = await this.employeeRepo.count();
+    const empNo = `EMP${String(count + 1).padStart(4, '0')}`;
+
+    const roleNames = dto.roleNames?.length ? dto.roleNames : ['employee'];
+    const allRoles = await this.roleRepo.find();
+    const roleMap = new Map(allRoles.map((r) => [r.name, r]));
+    const roles: Role[] = roleNames
+      .map((n) => roleMap.get(n))
+      .filter((r): r is Role => r !== undefined);
+
+    const employee = this.employeeRepo.create({
+      empNo,
+      name: dto.name,
+      email: dto.email ?? null,
+      hireDate: dto.hireDate ? (new Date(dto.hireDate) as unknown as Date) : null,
+      status: 'active',
+      roles,
+    });
+    const saved = await this.employeeRepo.save(employee);
+
+    // Send notifications asynchronously — do not block the response
+    this.sendWelcomeNotifications(saved, empNo).catch(() => {});
+
+    return this.toRow(
+      (await this.employeeRepo.findOne({ where: { id: saved.id }, relations: ['roles'] }))!,
+    );
+  }
+
+  private async sendWelcomeNotifications(employee: Employee, empNo: string): Promise<void> {
+    const appUrl = this.configService.get<string>('APP_URL', 'http://localhost:5173');
+
+    if (employee.email) {
+      const html = this.notificationService.buildWelcomeEmail(employee.name, empNo, appUrl);
+      await this.notificationService.sendEmail(
+        employee.email,
+        `歡迎加入 CheckPass 打卡通！您的帳號已開立`,
+        html,
+      );
+    }
+
+    if (employee.lineUserId) {
+      const text = this.notificationService.buildWelcomeLinePush(employee.name, empNo);
+      await this.notificationService.sendLinePush(employee.lineUserId, text);
+    }
+  }
 
   async listEmployees(params: {
     page: number;
