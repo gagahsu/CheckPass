@@ -211,6 +211,45 @@ export class PayrollService {
   }
 
   /**
+   * Returns monthly payroll aggregates for the past `months` calendar months.
+   * Used by the BI dashboard HR section.
+   */
+  async getPayrollTrend(months: number): Promise<{
+    year: number;
+    month: number;
+    totalPayout: number;
+    confirmedCount: number;
+    draftCount: number;
+    avgSalary: number;
+  }[]> {
+    const now = new Date();
+    const result: {
+      year: number; month: number; totalPayout: number;
+      confirmedCount: number; draftCount: number; avgSalary: number;
+    }[] = [];
+
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth() + 1;
+
+      const payrolls = await this.payrollRepo.find({ where: { year, month } });
+      const confirmed = payrolls.filter((p) => p.status === PayrollStatus.CONFIRMED);
+      const totalPayout = confirmed.reduce((sum, p) => sum + Number(p.totalSalary), 0);
+
+      result.push({
+        year,
+        month,
+        totalPayout,
+        confirmedCount: confirmed.length,
+        draftCount: payrolls.length - confirmed.length,
+        avgSalary: confirmed.length > 0 ? Math.round(totalPayout / confirmed.length) : 0,
+      });
+    }
+    return result;
+  }
+
+  /**
    * Retrieve a payroll record for a specific employee / year / month.
    */
   async getPayroll(

@@ -98,6 +98,17 @@ export class AttendanceController {
     return this.attendanceService.getDepartmentSummary(user.employeeId, date);
   }
 
+  @Get('trend')
+  @UseGuards(RolesGuard)
+  @Roles('manager', 'hr', 'admin')
+  @ApiOperation({ summary: '出勤趨勢（N 天，manager+）' })
+  @ApiQuery({ name: 'days', type: Number, required: false, description: '天數，預設 30' })
+  @ApiResponse({ status: 200, description: '每日出勤人數統計陣列' })
+  async getAttendanceTrend(@Query('days') days?: string) {
+    const n = Math.min(90, Math.max(7, parseInt(days ?? '30', 10) || 30));
+    return this.attendanceService.getAttendanceTrend(n);
+  }
+
   // ─── Workplace Settings (admin) ──────────────────────────────────────────────
 
   @Get('workplaces')

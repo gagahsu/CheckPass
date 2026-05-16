@@ -9,6 +9,7 @@ import type {
   DashboardStats,
   PagedResponse,
   WorkplaceSetting,
+  AttendanceTrendItem,
 } from '@/types'
 
 export const attendanceApi = {
@@ -57,5 +58,11 @@ export const attendanceApi = {
   },
   deleteWorkplace(id: number): Promise<void> {
     return apiClient.delete(`/attendance/workplaces/${id}`).then(() => undefined)
+  },
+
+  getAttendanceTrend(days = 30): Promise<AttendanceTrendItem[]> {
+    return apiClient
+      .get<AttendanceTrendItem[]>('/attendance/trend', { params: { days } })
+      .then((r) => r.data)
   },
 }

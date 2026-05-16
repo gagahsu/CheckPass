@@ -284,6 +284,25 @@ export interface Payroll {
   updatedAt: string
 }
 
+// ─── BI Analytics ──────────────────────────────────────────────────────────────
+
+export interface AttendanceTrendItem {
+  date: string
+  present: number
+  late: number
+  absent: number
+  total: number
+}
+
+export interface PayrollTrendItem {
+  year: number
+  month: number
+  totalPayout: number
+  confirmedCount: number
+  draftCount: number
+  avgSalary: number
+}
+
 // ─── Notification ──────────────────────────────────────────────────────────────
 
 export type NotificationType = 'leave_approval' | 'shift_published' | 'payroll_ready' | 'general'

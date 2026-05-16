@@ -1,5 +1,5 @@
 import apiClient from './index'
-import type { Payroll } from '@/types'
+import type { Payroll, PayrollTrendItem } from '@/types'
 
 export const payrollApi = {
   getPayroll(year: number, month: number, employeeId?: number): Promise<Payroll> {
@@ -27,6 +27,12 @@ export const payrollApi = {
   batchNotify(year: number, month: number): Promise<{ notified: number }> {
     return apiClient
       .post<{ notified: number }>('/payroll/batch-notify', { year, month })
+      .then((r) => r.data)
+  },
+
+  getPayrollTrend(months = 6): Promise<PayrollTrendItem[]> {
+    return apiClient
+      .get<PayrollTrendItem[]>('/payroll/trend', { params: { months } })
       .then((r) => r.data)
   },
 }

@@ -105,6 +105,20 @@ export class PayrollController {
   }
 
   /**
+   * HR views monthly payroll trend for the past N months (BI analytics).
+   */
+  @Get('trend')
+  @UseGuards(RolesGuard)
+  @Roles('hr', 'admin')
+  @ApiOperation({ summary: '薪資月走勢（HR）' })
+  @ApiQuery({ name: 'months', type: Number, required: false, description: '月數，預設 6' })
+  @ApiResponse({ status: 200, description: '每月薪資匯總陣列' })
+  async getPayrollTrend(@Query('months') months?: string) {
+    const n = Math.min(24, Math.max(3, parseInt(months ?? '6', 10) || 6));
+    return this.payrollService.getPayrollTrend(n);
+  }
+
+  /**
    * HR sends payroll notifications to all employees with confirmed payrolls for a month.
    */
   @Post('batch-notify')

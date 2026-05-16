@@ -415,6 +415,71 @@ export class AttendanceService {
   }
 
   // ---------------------------------------------------------------------------
+  // BI Trend Analytics
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns per-day attendance counts for the past `days` calendar days.
+   * Requires manager / hr / admin — accessible via GET /attendance/trend.
+   */
+  async getAttendanceTrend(days: number): Promise<{
+    date: string;
+    present: number;
+    late: number;
+    absent: number;
+    total: number;
+  }[]> {
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - days + 1);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = this.endOfDay(now);
+
+    // Fetch all records in range in one query
+    const records = await this.attendanceRepo.find({
+      where: { checkInTime: Between(startDate, endDate) },
+      select: ['checkInTime', 'status'] as (keyof AttendanceRecord)[],
+    });
+
+    // Group by date string
+    const byDate = new Map<string, { present: number; late: number }>();
+    for (const r of records) {
+      if (!r.checkInTime) continue;
+      const dateStr = (r.checkInTime as Date).toISOString().split('T')[0];
+      if (!byDate.has(dateStr)) byDate.set(dateStr, { present: 0, late: 0 });
+      const bucket = byDate.get(dateStr)!;
+      if (r.status === AttendanceStatus.LATE) {
+        bucket.late++;
+      } else {
+        bucket.present++;
+      }
+    }
+
+    // Active employee headcount (denominator for absent)
+    const totalEmployees = await this.employeeRepo.count({
+      where: { status: 'active' as any },
+    });
+
+    // Emit one entry per day
+    const result: { date: string; present: number; late: number; absent: number; total: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const bucket = byDate.get(dateStr) ?? { present: 0, late: 0 };
+      const checkedIn = bucket.present + bucket.late;
+      result.push({
+        date: dateStr,
+        present: bucket.present,
+        late: bucket.late,
+        absent: Math.max(0, totalEmployees - checkedIn),
+        total: totalEmployees,
+      });
+    }
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
   // Workplace Settings
   // ---------------------------------------------------------------------------
 
