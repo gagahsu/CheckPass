@@ -66,7 +66,14 @@
                 :draggable="canManage && viewMode === 'week'"
                 @dragstart="onShiftTypeDragStart(st)"
               >
-                <div class="shift-type-name">{{ st.name }}</div>
+                <div class="shift-type-header-row">
+                  <div class="shift-type-name">{{ st.name }}</div>
+                  <i
+                    v-if="viewMode === 'week' && isUnderstaffedThisWeek(st.id)"
+                    class="pi pi-exclamation-triangle understaffed-icon"
+                    title="本週有日期人力不足"
+                  />
+                </div>
                 <div class="shift-type-time">{{ st.startTime }} – {{ st.endTime }}</div>
                 <div class="shift-type-range">{{ st.minStaff }}–{{ st.maxStaff }} 人</div>
               </div>
@@ -102,9 +109,14 @@
                 <p>無員工資料</p>
               </div>
               <div v-for="emp in allEmployees" :key="emp.id" class="cal-row">
-                <div class="cal-cell cal-emp-name">
+                <div
+                  class="cal-cell cal-emp-name"
+                  :class="{ 'overtime-warning': isOvertime(emp.id) }"
+                  :title="overtimeTitle(emp.id)"
+                >
                   <Avatar :label="emp.name.charAt(0)" size="small" shape="circle" />
                   <span>{{ emp.name }}</span>
+                  <i v-if="isOvertime(emp.id)" class="pi pi-exclamation-triangle overtime-icon" />
                 </div>
                 <div
                   v-for="day in weekDays"
@@ -127,6 +139,25 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Staffing summary row -->
+              <div v-if="shiftTypes.length > 0" class="cal-row staffing-row">
+                <div class="cal-cell cal-emp-name staffing-header">人員配置</div>
+                <div v-for="day in weekDays" :key="day.iso" class="cal-cell cal-day-cell">
+                  <template v-for="st in shiftTypes" :key="st.id">
+                    <div
+                      v-if="staffingByDate.get(`${day.iso}-${st.id}`)"
+                      class="staffing-pill"
+                      :class="{ understaffed: (staffingByDate.get(`${day.iso}-${st.id}`) ?? 0) < st.minStaff }"
+                      :title="staffingTitle(st, day.iso)"
+                    >
+                      <span class="staffing-dot" :style="{ background: st.color }" />
+                      {{ staffingByDate.get(`${day.iso}-${st.id}`) }}/{{ st.minStaff }}
+                    </div>
+                  </template>
+                </div>
+              </div>
+
               <p v-if="canManage" class="drag-hint">
                 <i class="pi pi-info-circle"></i>
                 將左側班別拖放到格子中排班，點擊格子中的班別可移除
@@ -344,6 +375,67 @@ const periodLabel = computed(() => {
   }
   return `${monthYear.value} 年 ${monthMonth.value} 月`
 })
+
+/** Taiwan Labor Standards Act: max regular working hours per week */
+const WEEKLY_HOURS_LIMIT = 40
+
+function shiftDurationHours(st: ShiftType): number {
+  const [sh, sm] = st.startTime.split(':').map(Number)
+  const [eh, em] = st.endTime.split(':').map(Number)
+  const totalMin = (eh * 60 + em) - (sh * 60 + sm) - (st.breakMinutes ?? 0)
+  return Math.max(0, totalMin) / 60
+}
+
+/** Count of assigned employees per (date, shiftTypeId) key. */
+const staffingByDate = computed(() => {
+  const map = new Map<string, number>()
+  for (const entry of scheduleEntries.value) {
+    const key = `${entry.date}-${entry.shiftTypeId}`
+    map.set(key, (map.get(key) ?? 0) + 1)
+  }
+  return map
+})
+
+/** Total scheduled hours per employee for the current week view. */
+const employeeWeeklyHours = computed(() => {
+  if (viewMode.value !== 'week') return new Map<number, number>()
+  const weekIsos = new Set(weekDays.value.map((d) => d.iso))
+  const map = new Map<number, number>()
+  for (const entry of scheduleEntries.value) {
+    if (!weekIsos.has(entry.date)) continue
+    const st = shiftTypes.value.find((s) => s.id === entry.shiftTypeId)
+    if (!st) continue
+    map.set(entry.employeeId, (map.get(entry.employeeId) ?? 0) + shiftDurationHours(st))
+  }
+  return map
+})
+
+function isOvertime(empId: number): boolean {
+  return (employeeWeeklyHours.value.get(empId) ?? 0) >= WEEKLY_HOURS_LIMIT
+}
+
+function overtimeTitle(empId: number): string {
+  const h = (employeeWeeklyHours.value.get(empId) ?? 0).toFixed(1)
+  return Number(h) >= WEEKLY_HOURS_LIMIT
+    ? `本週排班 ${h}h — 已超過 ${WEEKLY_HOURS_LIMIT}h 週工時上限`
+    : `本週排班 ${h}h`
+}
+
+function isUnderstaffedThisWeek(shiftTypeId: number): boolean {
+  const st = shiftTypes.value.find((s) => s.id === shiftTypeId)
+  if (!st) return false
+  return weekDays.value.some((day) => {
+    const count = staffingByDate.value.get(`${day.iso}-${shiftTypeId}`) ?? 0
+    return count > 0 && count < st.minStaff
+  })
+}
+
+function staffingTitle(st: ShiftType, date: string): string {
+  const count = staffingByDate.value.get(`${date}-${st.id}`) ?? 0
+  return count < st.minStaff
+    ? `${st.name}：${count}/${st.minStaff} 人（人力不足）`
+    : `${st.name}：${count}/${st.minStaff} 人`
+}
 
 function getEntries(empId: number, date: string): ScheduleEntry[] {
   return scheduleEntries.value.filter((e) => e.employeeId === empId && e.date === date)
@@ -938,6 +1030,75 @@ onMounted(async () => {
   padding: 0.5rem 0.75rem;
   background: #fee2e2;
   border-radius: 6px;
+}
+
+/* ─── Weekly hours overtime warning ─── */
+.overtime-warning {
+  background: #fffbeb !important;
+  border-left: 3px solid #f59e0b;
+}
+
+.overtime-warning span {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.overtime-icon {
+  font-size: 0.7rem;
+  color: #f59e0b;
+  margin-left: auto;
+}
+
+/* ─── Staffing summary row ─── */
+.staffing-row {
+  background: #f9fafb;
+  border-top: 2px solid #e5e7eb;
+}
+
+.staffing-header {
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  color: #6b7280 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.staffing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f0fdf4;
+  color: #15803d;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.staffing-pill.understaffed {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.staffing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ─── Shift type panel warnings ─── */
+.shift-type-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.understaffed-icon {
+  font-size: 0.72rem;
+  color: #dc2626;
 }
 
 @media (max-width: 768px) {
