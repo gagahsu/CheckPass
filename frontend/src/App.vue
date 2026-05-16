@@ -9,8 +9,12 @@ import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import Toast from 'primevue/toast'
 import InstallPrompt from '@/components/InstallPrompt.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 onMounted(() => {
+  authStore.initFromStorage()
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
   }
