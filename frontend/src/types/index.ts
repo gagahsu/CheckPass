@@ -59,17 +59,15 @@ export interface Employee {
   id: number
   empNo: string
   name: string
-  email: string
-  phone: string
-  departmentId: number
+  email: string | null
+  lineUserId: string | null
+  departmentId: number | null
   department?: Department
-  positionId: number
+  positionId: number | null
   position?: Position
   roles: RoleName[]
   status: EmployeeStatus
-  hireDate: string
-  lineUserId: string | null
-  avatar: string | null
+  hireDate: string | null
   createdAt: string
   updatedAt: string
 }

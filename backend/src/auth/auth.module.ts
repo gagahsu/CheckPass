@@ -5,6 +5,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
+import { HrService } from './hr.service';
+import { HrController } from './hr.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { Employee } from './entities/employee.entity';
 import { Role } from './entities/role.entity';
@@ -22,8 +24,8 @@ import { Role } from './entities/role.entity';
     }),
     TypeOrmModule.forFeature([Employee, Role]),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  controllers: [AuthController, HrController],
+  providers: [AuthService, HrService, JwtStrategy],
   exports: [JwtModule, PassportModule, TypeOrmModule],
 })
 export class AuthModule {}
