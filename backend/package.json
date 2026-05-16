@@ -1,6 +1,7 @@
 {
   "name": "checkpass-backend",
   "version": "1.0.0",
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
