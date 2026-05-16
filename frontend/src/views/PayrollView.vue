@@ -147,6 +147,16 @@
               @click="handleConfirm"
             />
           </div>
+          <div class="batch-notify-section">
+            <Button
+              label="發送全員薪資通知"
+              icon="pi pi-bell"
+              severity="info"
+              :loading="batchNotifying"
+              @click="handleBatchNotify"
+            />
+            <span class="batch-hint">發送本月所有已確認薪資的 LINE & Email 通知</span>
+          </div>
           <div v-if="hrError" class="hr-error">{{ hrError }}</div>
         </template>
       </Card>
@@ -164,6 +174,9 @@ import { payrollApi } from '@/api/payroll'
 import type { Payroll, PayrollStatus } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
+import { useToast } from 'primevue/usetoast'
+
+const toast = useToast()
 
 const authStore = useAuthStore()
 const isHr = computed(() => authStore.hasRole('hr') || authStore.hasRole('admin'))
@@ -179,6 +192,7 @@ const confirming = ref(false)
 const hrError = ref<string | null>(null)
 const hrEmployeeId = ref<number | ''>('')
 const hrBaseSalary = ref<number | ''>(45000)
+const batchNotifying = ref(false)
 
 const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
@@ -244,6 +258,24 @@ async function handleConfirm(): Promise<void> {
     hrError.value = '確認失敗，請稍後再試'
   } finally {
     confirming.value = false
+  }
+}
+
+async function handleBatchNotify(): Promise<void> {
+  batchNotifying.value = true
+  hrError.value = null
+  try {
+    const result = await payrollApi.batchNotify(selectedYear.value, selectedMonth.value)
+    toast.add({
+      severity: 'success',
+      summary: '通知發送完成',
+      detail: `已發送 ${result.notified} 位員工的薪資通知`,
+      life: 4000,
+    })
+  } catch {
+    hrError.value = '發送失敗，請確認是否有已確認薪資記錄'
+  } finally {
+    batchNotifying.value = false
   }
 }
 
@@ -369,6 +401,20 @@ onMounted(() => {
 
 .hr-input {
   min-width: 130px;
+}
+
+.batch-notify-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.batch-hint {
+  font-size: 0.8rem;
+  color: #9ca3af;
 }
 
 .hr-error {

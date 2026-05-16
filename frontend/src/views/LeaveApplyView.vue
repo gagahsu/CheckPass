@@ -78,6 +78,42 @@
               <small v-if="errors.reason" class="error-text">{{ errors.reason }}</small>
             </div>
 
+            <!-- Attachment (shown when the leave type requires one) -->
+            <div v-if="selectedLeaveType?.requiresAttachment" class="form-group">
+              <label class="form-label">
+                附件 <span class="required">*</span>
+                <span class="form-hint-inline">（JPG / PNG / PDF，最大 10 MB）</span>
+              </label>
+              <div class="attachment-area" @click="triggerFileInput">
+                <input
+                  ref="fileInputRef"
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.pdf"
+                  class="hidden-input"
+                  @change="onFileChange"
+                />
+                <div v-if="!attachmentFile" class="attachment-placeholder">
+                  <i class="pi pi-upload"></i>
+                  <span>點擊選擇檔案</span>
+                </div>
+                <div v-else class="attachment-selected">
+                  <i class="pi pi-file"></i>
+                  <span>{{ attachmentFile.name }}</span>
+                  <Button
+                    icon="pi pi-times"
+                    text
+                    size="small"
+                    severity="secondary"
+                    @click.stop="attachmentFile = null; attachmentUrl = ''"
+                  />
+                </div>
+              </div>
+              <div v-if="uploadProgress" class="upload-progress">
+                <i class="pi pi-spin pi-spinner"></i> 上傳中...
+              </div>
+              <small v-if="errors.attachment" class="error-text">{{ errors.attachment }}</small>
+            </div>
+
             <!-- Global error -->
             <div v-if="submitError" class="submit-error">
               <i class="pi pi-exclamation-triangle"></i>
@@ -121,6 +157,10 @@ const router = useRouter()
 const toast = useToast()
 
 const leaveTypes = ref<LeaveType[]>([])
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const attachmentFile = ref<File | null>(null)
+const attachmentUrl = ref('')
+const uploadProgress = ref(false)
 
 onMounted(async () => {
   try {
@@ -137,9 +177,36 @@ const form = ref({
   reason: ''
 })
 
+const selectedLeaveType = computed(() =>
+  leaveTypes.value.find((lt) => lt.id === form.value.leaveTypeId) ?? null
+)
+
 const errors = ref<Record<string, string>>({})
 const submitting = ref(false)
 const submitError = ref<string | null>(null)
+
+function triggerFileInput(): void {
+  fileInputRef.value?.click()
+}
+
+async function onFileChange(e: Event): Promise<void> {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  attachmentFile.value = file
+  uploadProgress.value = true
+  errors.value = { ...errors.value, attachment: '' }
+  try {
+    const result = await leaveApi.uploadAttachment(file)
+    attachmentUrl.value = result.url
+  } catch {
+    attachmentFile.value = null
+    attachmentUrl.value = ''
+    errors.value = { ...errors.value, attachment: '上傳失敗，請重試' }
+  } finally {
+    uploadProgress.value = false
+  }
+}
 
 const dayCount = computed(() => {
   if (!form.value.startDate || !form.value.endDate) return 0
@@ -159,6 +226,9 @@ function validate(): boolean {
     errs.endDate = '結束日期不能早於開始日期'
   }
   if (!form.value.reason.trim()) errs.reason = '請填寫請假事由'
+  if (selectedLeaveType.value?.requiresAttachment && !attachmentUrl.value) {
+    errs.attachment = '此假別需要上傳附件（如醫療證明）'
+  }
   errors.value = errs
   return Object.keys(errs).length === 0
 }
@@ -172,7 +242,8 @@ async function handleSubmit(): Promise<void> {
       leaveTypeId: form.value.leaveTypeId as number,
       startDate: form.value.startDate,
       endDate: form.value.endDate,
-      reason: form.value.reason.trim()
+      reason: form.value.reason.trim(),
+      attachmentUrl: attachmentUrl.value || undefined,
     })
     toast.add({
       severity: 'success',
@@ -291,6 +362,51 @@ async function handleSubmit(): Promise<void> {
   gap: 0.75rem;
   padding-top: 0.5rem;
   border-top: 1px solid #f3f4f6;
+}
+
+.form-hint-inline {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #9ca3af;
+  margin-left: 0.25rem;
+}
+
+.attachment-area {
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.attachment-area:hover {
+  border-color: #06b6d4;
+}
+
+.attachment-placeholder,
+.attachment-selected {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.attachment-selected {
+  color: #374151;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: 0.25rem;
 }
 
 @media (max-width: 480px) {

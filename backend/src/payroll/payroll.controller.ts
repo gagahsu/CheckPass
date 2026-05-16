@@ -105,6 +105,23 @@ export class PayrollController {
   }
 
   /**
+   * HR sends payroll notifications to all employees with confirmed payrolls for a month.
+   */
+  @Post('batch-notify')
+  @UseGuards(RolesGuard)
+  @Roles('hr', 'admin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '全員薪資通知（HR）' })
+  @ApiResponse({ status: 200, description: '通知已發送，返回通知人數' })
+  @ApiResponse({ status: 403, description: 'Forbidden' })
+  async batchNotify(
+    @Body('year', ParseIntPipe) year: number,
+    @Body('month', ParseIntPipe) month: number,
+  ) {
+    return this.payrollService.batchNotify(year, month);
+  }
+
+  /**
    * HR confirms a calculated payroll record.
    */
   @Post(':id/confirm')

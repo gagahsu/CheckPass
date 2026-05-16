@@ -6,6 +6,30 @@
         <Button label="申請假單" icon="pi pi-plus" @click="router.push('/leave/apply')" />
       </div>
 
+      <!-- Leave Balance Strip -->
+      <div v-if="balance.length > 0" class="balance-strip">
+        <div
+          v-for="b in balance"
+          :key="b.leaveTypeId"
+          class="balance-card"
+          :class="{ 'no-limit': b.maxDaysPerYear == null }"
+        >
+          <div class="balance-type">{{ b.leaveTypeName }}</div>
+          <div class="balance-nums">
+            <span class="balance-used">{{ b.usedDays }}天</span>
+            <span class="balance-sep">/</span>
+            <span class="balance-total">{{ b.maxDaysPerYear != null ? `${b.maxDaysPerYear}天` : '無限制' }}</span>
+          </div>
+          <div v-if="b.maxDaysPerYear != null" class="balance-bar">
+            <div
+              class="balance-fill"
+              :style="{ width: `${Math.min(100, (b.usedDays / b.maxDaysPerYear) * 100)}%` }"
+              :class="{ warning: b.remainingDays != null && b.remainingDays <= 2 }"
+            ></div>
+          </div>
+        </div>
+      </div>
+
       <!-- Tabs -->
       <div class="tab-bar">
         <button
@@ -193,7 +217,7 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import { leaveApi } from '@/api/leave'
-import type { LeaveRequest, LeaveStatus } from '@/types'
+import type { LeaveRequest, LeaveStatus, LeaveBalance } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
 
@@ -201,6 +225,7 @@ const router = useRouter()
 const toast = useToast()
 const authStore = useAuthStore()
 
+const balance = ref<LeaveBalance[]>([])
 const activeTab = ref<'mine' | 'pending'>('mine')
 const myRequests = ref<LeaveRequest[]>([])
 const pendingRequests = ref<LeaveRequest[]>([])
@@ -329,8 +354,17 @@ async function handleCancel(id: number): Promise<void> {
   }
 }
 
+async function loadBalance(): Promise<void> {
+  try {
+    balance.value = await leaveApi.getBalance()
+  } catch {
+    balance.value = []
+  }
+}
+
 onMounted(() => {
   loadMyRequests()
+  loadBalance()
 })
 </script>
 
@@ -450,4 +484,68 @@ onMounted(() => {
 }
 
 .required { color: #ef4444; }
+
+.balance-strip {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.balance-card {
+  background: white;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  min-width: 140px;
+  flex: 1;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.balance-type {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.balance-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.balance-used {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0284c7;
+}
+
+.balance-sep {
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+
+.balance-total {
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+.balance-bar {
+  height: 4px;
+  background: #e5e7eb;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.balance-fill {
+  height: 100%;
+  background: #0284c7;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.balance-fill.warning {
+  background: #f59e0b;
+}
 </style>

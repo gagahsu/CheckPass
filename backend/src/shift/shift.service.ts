@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -10,6 +11,7 @@ import { ShiftType } from './entities/shift-type.entity';
 import { ShiftSchedule, ScheduleStatus } from './entities/shift-schedule.entity';
 import { CreateShiftTypeDto, AssignShiftDto, PublishScheduleDto } from './dto/shift.dto';
 import { Employee } from '../auth/entities/employee.entity';
+import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
@@ -23,6 +25,8 @@ export class ShiftService {
     private readonly scheduleRepo: Repository<ShiftSchedule>,
     @InjectRepository(Employee)
     private readonly employeeRepo: Repository<Employee>,
+    @InjectRepository(LeaveRequest)
+    private readonly leaveRequestRepo: Repository<LeaveRequest>,
     private readonly notificationService: NotificationService,
   ) {}
 
@@ -89,6 +93,22 @@ export class ShiftService {
     if (existing) {
       throw new BadRequestException(
         `Employee #${dto.employeeId} already has a shift assignment on ${dto.date}`,
+      );
+    }
+
+    // Check for leave conflicts (pending, manager_approved, or approved leave)
+    const leaveConflict = await this.leaveRequestRepo
+      .createQueryBuilder('lr')
+      .where('lr.employeeId = :employeeId', { employeeId: dto.employeeId })
+      .andWhere('lr.status IN (:...statuses)', {
+        statuses: ['pending', 'manager_approved', 'approved'],
+      })
+      .andWhere('lr.startDate <= :date AND lr.endDate >= :date', { date: dto.date })
+      .getCount();
+
+    if (leaveConflict > 0) {
+      throw new ConflictException(
+        `Employee #${dto.employeeId} has an active leave request on ${dto.date}`,
       );
     }
 
@@ -179,6 +199,24 @@ export class ShiftService {
         weekStart,
         weekEnd,
       })
+      .orderBy('s.date', 'ASC')
+      .addOrderBy('st.startTime', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Retrieve the full monthly schedule for a store.
+   */
+  async getMonthSchedule(storeId: number, year: number, month: number): Promise<ShiftSchedule[]> {
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+    return this.scheduleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.shiftType', 'st')
+      .where('st.storeId = :storeId', { storeId })
+      .andWhere('s.date >= :monthStart AND s.date <= :monthEnd', { monthStart, monthEnd })
       .orderBy('s.date', 'ASC')
       .addOrderBy('st.startTime', 'ASC')
       .getMany();

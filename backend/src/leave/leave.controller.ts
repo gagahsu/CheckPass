@@ -9,7 +9,13 @@ import {
   HttpCode,
   HttpStatus,
   ParseIntPipe,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import * as path from 'path';
 import {
   ApiTags,
   ApiOperation,
@@ -40,6 +46,48 @@ export class LeaveController {
   @ApiResponse({ status: 200, description: '所有假別' })
   async getLeaveTypes() {
     return this.leaveService.getLeaveTypes();
+  }
+
+  /**
+   * Get leave balance for the current employee.
+   */
+  @Get('balance')
+  @ApiOperation({ summary: '假期餘額' })
+  @ApiResponse({ status: 200, description: '各假別已用/剩餘天數' })
+  async getBalance(@CurrentUser() user: JwtPayload) {
+    return this.leaveService.getBalance(user.employeeId);
+  }
+
+  /**
+   * Upload a leave attachment (JPG/PNG/PDF, max 10 MB).
+   */
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads/leave-attachments',
+        filename: (_req, file, cb) => {
+          const ext = path.extname(file.originalname).toLowerCase();
+          cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+        },
+      }),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['.jpg', '.jpeg', '.png', '.pdf'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Only JPG, PNG, PDF files are allowed'), false);
+        }
+      },
+    }),
+  )
+  @ApiOperation({ summary: '上傳請假附件' })
+  @ApiResponse({ status: 201, description: '上傳成功，返回附件 URL' })
+  async uploadAttachment(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    return { url: `/uploads/leave-attachments/${file.filename}` };
   }
 
   /**

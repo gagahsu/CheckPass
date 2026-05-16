@@ -34,6 +34,11 @@ export class ApplyLeaveDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiPropertyOptional({ description: 'URL of uploaded attachment (e.g. doctor certificate)' })
+  @IsOptional()
+  @IsString()
+  attachmentUrl?: string;
 }
 
 /** DTO for manager approval / rejection response */

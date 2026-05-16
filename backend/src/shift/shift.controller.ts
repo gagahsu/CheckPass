@@ -97,6 +97,23 @@ export class ShiftController {
   }
 
   /**
+   * Get the full monthly schedule for a store.
+   */
+  @Get('schedule/month')
+  @ApiOperation({ summary: '月班表' })
+  @ApiQuery({ name: 'storeId', type: Number })
+  @ApiQuery({ name: 'year', type: Number })
+  @ApiQuery({ name: 'month', type: Number })
+  @ApiResponse({ status: 200, description: '月班表排班記錄' })
+  async getMonthSchedule(
+    @Query('storeId', ParseIntPipe) storeId: number,
+    @Query('year', ParseIntPipe) year: number,
+    @Query('month', ParseIntPipe) month: number,
+  ) {
+    return this.shiftService.getMonthSchedule(storeId, year, month);
+  }
+
+  /**
    * Get the current employee's weekly schedule.
    */
   @Get('my-schedule')

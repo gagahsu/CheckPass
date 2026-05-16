@@ -230,6 +230,7 @@ export interface LeaveRequest {
   startDate: string
   endDate: string
   reason: string | null
+  attachmentUrl: string | null
   status: LeaveStatus
   approvedBy: number | null
   approvedAt: string | null
@@ -241,11 +242,21 @@ export interface LeaveRequest {
   createdAt: string
 }
 
+export interface LeaveBalance {
+  leaveTypeId: number
+  leaveTypeName: string
+  code: string
+  maxDaysPerYear: number | null
+  usedDays: number
+  remainingDays: number | null
+}
+
 export interface LeaveApplyPayload {
   leaveTypeId: number
   startDate: string
   endDate: string
   reason: string
+  attachmentUrl?: string
 }
 
 // ─── Payroll ───────────────────────────────────────────────────────────────────
