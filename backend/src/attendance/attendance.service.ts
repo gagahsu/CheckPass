@@ -12,7 +12,7 @@ import {
   CheckInType,
 } from './entities/attendance-record.entity';
 import { WorkplaceSetting } from './entities/workplace-setting.entity';
-import { CheckInDto, CheckOutDto, AttendanceQueryDto } from './dto/check-in.dto';
+import { CheckInDto, CheckOutDto, AttendanceQueryDto, CreateWorkplaceDto, UpdateWorkplaceDto } from './dto/check-in.dto';
 import { NotificationService } from '../notification/notification.service';
 import { SseService } from '../sse/sse.service';
 import { Employee } from '../auth/entities/employee.entity';
@@ -412,6 +412,45 @@ export class AttendanceService {
       this.getWorkHoursSummary(employeeId, 'month'),
     ]);
     return { todayRecord, weekSummary, monthSummary };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workplace Settings
+  // ---------------------------------------------------------------------------
+
+  async listWorkplaces(): Promise<WorkplaceSetting[]> {
+    return this.workplaceRepo.find({ order: { name: 'ASC' } });
+  }
+
+  async createWorkplace(dto: CreateWorkplaceDto): Promise<WorkplaceSetting> {
+    const wp = this.workplaceRepo.create({
+      name: dto.name,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      gpsRadiusMeters: dto.gpsRadiusMeters ?? 200,
+      wifiSsids: dto.wifiSsids ?? null,
+      isActive: true,
+      storeId: null,
+    });
+    return this.workplaceRepo.save(wp);
+  }
+
+  async updateWorkplace(id: number, dto: UpdateWorkplaceDto): Promise<WorkplaceSetting> {
+    const wp = await this.workplaceRepo.findOne({ where: { id } });
+    if (!wp) throw new NotFoundException(`Workplace #${id} not found`);
+    if (dto.name !== undefined) wp.name = dto.name;
+    if (dto.latitude !== undefined) wp.latitude = dto.latitude;
+    if (dto.longitude !== undefined) wp.longitude = dto.longitude;
+    if (dto.gpsRadiusMeters !== undefined) wp.gpsRadiusMeters = dto.gpsRadiusMeters;
+    if (dto.wifiSsids !== undefined) wp.wifiSsids = dto.wifiSsids ?? null;
+    if (dto.isActive !== undefined) wp.isActive = dto.isActive;
+    return this.workplaceRepo.save(wp);
+  }
+
+  async deleteWorkplace(id: number): Promise<void> {
+    const wp = await this.workplaceRepo.findOne({ where: { id } });
+    if (!wp) throw new NotFoundException(`Workplace #${id} not found`);
+    await this.workplaceRepo.remove(wp);
   }
 
   /** Mark an employee as absent for a given date (called by scheduler). */

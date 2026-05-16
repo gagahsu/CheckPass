@@ -9,7 +9,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { Employee } from '../auth/entities/employee.entity';
 import { CalculatePayrollDto } from './dto/payroll.dto';
+import { NotificationService } from '../notification/notification.service';
 
 /** Default overtime pay rate multiplier per Taiwan Labour Standards Act Article 24 */
 const DEFAULT_OVERTIME_MULTIPLIER = 1.33;
@@ -26,6 +28,9 @@ export class PayrollService {
     private readonly payrollRepo: Repository<Payroll>,
     @InjectRepository(AttendanceRecord)
     private readonly attendanceRepo: Repository<AttendanceRecord>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -91,7 +96,11 @@ export class PayrollService {
     const overtimePay = parseFloat(
       (hourlyRate * totalOvertimeHours * multiplier).toFixed(2),
     );
-    const deduction = 0; // Phase-0: no deduction calculation yet
+    // Taiwan NHI: premium rate 5.17%, employee bears 30% → 1.551% of salary
+    // Taiwan Labor Insurance: premium rate 12%, employee bears 20% → 2.4% of salary
+    const nhiDeduction = parseFloat((baseSalary * 0.01551).toFixed(0)) * 1; // round to integer TWD
+    const laborDeduction = parseFloat((baseSalary * 0.024).toFixed(0)) * 1;
+    const deduction = nhiDeduction + laborDeduction;
     const totalSalary = parseFloat((baseSalary + overtimePay - deduction).toFixed(2));
 
     // Upsert payroll record
@@ -99,6 +108,8 @@ export class PayrollService {
     payroll.baseSalary = baseSalary;
     payroll.overtimePay = overtimePay;
     payroll.overtimeHours = parseFloat(totalOvertimeHours.toFixed(2));
+    payroll.nhiDeduction = nhiDeduction;
+    payroll.laborDeduction = laborDeduction;
     payroll.deduction = deduction;
     payroll.totalSalary = totalSalary;
     payroll.workingDays = workingDays;
@@ -108,7 +119,7 @@ export class PayrollService {
     const saved = await this.payrollRepo.save(payroll);
     this.logger.log(
       `Calculated payroll for employee #${employeeId} ${year}/${month}: ` +
-        `base=${baseSalary}, ot=${overtimePay}, total=${totalSalary}`,
+        `base=${baseSalary}, ot=${overtimePay}, nhi=${nhiDeduction}, labor=${laborDeduction}, total=${totalSalary}`,
     );
     return saved;
   }
@@ -133,7 +144,44 @@ export class PayrollService {
     this.logger.log(
       `HR #${hrEmployeeId} confirmed payroll #${payrollId} for employee #${payroll.employeeId}`,
     );
+
+    // Send payroll notification asynchronously
+    this.afterConfirm(saved).catch(() => {});
+
     return saved;
+  }
+
+  private async afterConfirm(payroll: Payroll): Promise<void> {
+    const employee = await this.employeeRepo.findOne({ where: { id: payroll.employeeId } });
+    if (!employee) return;
+
+    const year = payroll.year;
+    const month = payroll.month;
+    const summary = `NT$ ${Number(payroll.totalSalary).toLocaleString('zh-TW')}`;
+
+    // LINE push (summary)
+    if (employee.lineUserId) {
+      const text = `${employee.name} 您好！\n${year}年${month}月薪資已確認 💰\n實領金額：${summary}\n詳情請查收 Email。`;
+      await this.notificationService.sendLinePush(employee.lineUserId, text).catch(() => {});
+    }
+
+    // Email (detailed)
+    if (employee.email) {
+      const html = this.notificationService.buildPayrollEmail(employee.name, year, month, {
+        baseSalary: Number(payroll.baseSalary),
+        overtimePay: Number(payroll.overtimePay),
+        deduction: Number(payroll.deduction),
+        totalSalary: Number(payroll.totalSalary),
+        workingDays: payroll.workingDays,
+        overtimeHours: Number(payroll.overtimeHours),
+        lateMinutes: payroll.lateMinutes,
+      });
+      await this.notificationService.sendEmail(
+        employee.email,
+        `${year}年${month}月薪資通知 - CheckPass`,
+        html,
+      ).catch(() => {});
+    }
   }
 
   /**

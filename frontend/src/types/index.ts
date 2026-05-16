@@ -46,9 +46,11 @@ export interface Department {
 
 export interface Position {
   id: number
-  title: string
-  departmentId: number
+  name: string
+  departmentId: number | null
   level: number
+  createdAt: string
+  updatedAt: string
 }
 
 // ─── Employee ──────────────────────────────────────────────────────────────────
@@ -114,6 +116,19 @@ export interface CheckInResponse {
   checkInTime: string
   status: AttendanceStatus
   message: string
+}
+
+export interface WorkplaceSetting {
+  id: number
+  storeId: number | null
+  name: string
+  latitude: number
+  longitude: number
+  gpsRadiusMeters: number
+  wifiSsids: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface RecordQuery {
@@ -195,7 +210,7 @@ export interface AssignShiftPayload {
 
 // ─── Leave ─────────────────────────────────────────────────────────────────────
 
-export type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
+export type LeaveStatus = 'pending' | 'manager_approved' | 'approved' | 'rejected' | 'cancelled'
 
 export interface LeaveType {
   id: number
@@ -219,6 +234,10 @@ export interface LeaveRequest {
   approvedBy: number | null
   approvedAt: string | null
   rejectReason: string | null
+  managerApprovedBy: number | null
+  managerApprovedAt: string | null
+  hrConfirmedBy: number | null
+  hrConfirmedAt: string | null
   createdAt: string
 }
 
@@ -241,6 +260,8 @@ export interface Payroll {
   baseSalary: number
   overtimePay: number
   deduction: number
+  nhiDeduction: number
+  laborDeduction: number
   totalSalary: number
   overtimeHours: number
   workingDays: number

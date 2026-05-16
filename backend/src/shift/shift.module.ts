@@ -4,9 +4,11 @@ import { ShiftService } from './shift.service';
 import { ShiftController } from './shift.controller';
 import { ShiftType } from './entities/shift-type.entity';
 import { ShiftSchedule } from './entities/shift-schedule.entity';
+import { Employee } from '../auth/entities/employee.entity';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ShiftType, ShiftSchedule])],
+  imports: [TypeOrmModule.forFeature([ShiftType, ShiftSchedule, Employee]), NotificationModule],
   controllers: [ShiftController],
   providers: [ShiftService],
   exports: [ShiftService],

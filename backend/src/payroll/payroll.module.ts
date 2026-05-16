@@ -4,9 +4,11 @@ import { PayrollService } from './payroll.service';
 import { PayrollController } from './payroll.controller';
 import { Payroll } from './entities/payroll.entity';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { Employee } from '../auth/entities/employee.entity';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Payroll, AttendanceRecord])],
+  imports: [TypeOrmModule.forFeature([Payroll, AttendanceRecord, Employee]), NotificationModule],
   controllers: [PayrollController],
   providers: [PayrollService],
   exports: [PayrollService],

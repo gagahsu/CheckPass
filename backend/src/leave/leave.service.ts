@@ -79,30 +79,60 @@ export class LeaveService {
     return saved;
   }
 
-  async approve(requestId: number, managerId: number, comment?: string): Promise<LeaveRequest> {
+  async approve(requestId: number, managerId: number, callerRoles: string[], comment?: string): Promise<LeaveRequest> {
     const request = await this.findOrFail(requestId);
 
-    if (request.status !== LeaveRequestStatus.PENDING) {
-      throw new BadRequestException(
-        `Leave request #${requestId} is already ${request.status} and cannot be approved.`,
-      );
+    const isHr = callerRoles.some(r => ['hr', 'admin'].includes(r));
+
+    if (request.status === LeaveRequestStatus.PENDING) {
+      if (!isHr) {
+        // Manager first-stage approval
+        request.status = LeaveRequestStatus.MANAGER_APPROVED;
+        request.managerApprovedBy = managerId;
+        request.managerApprovedAt = new Date();
+      } else {
+        // HR/admin can fully approve directly from pending
+        request.status = LeaveRequestStatus.APPROVED;
+        request.managerApprovedBy = managerId;
+        request.managerApprovedAt = new Date();
+        request.hrConfirmedBy = managerId;
+        request.hrConfirmedAt = new Date();
+        request.approvedBy = managerId;
+        request.approvedAt = new Date();
+      }
+    } else if (request.status === LeaveRequestStatus.MANAGER_APPROVED) {
+      if (!isHr) {
+        throw new BadRequestException('This request requires HR confirmation. Only HR or admin can finalize it.');
+      }
+      // HR second-stage confirmation
+      request.status = LeaveRequestStatus.APPROVED;
+      request.hrConfirmedBy = managerId;
+      request.hrConfirmedAt = new Date();
+      request.approvedBy = managerId;
+      request.approvedAt = new Date();
+    } else {
+      throw new BadRequestException(`Leave request #${requestId} is already ${request.status} and cannot be approved.`);
     }
 
-    request.status = LeaveRequestStatus.APPROVED;
-    request.approvedBy = managerId;
-    request.approvedAt = new Date();
     if (comment) request.rejectReason = null;
 
     const saved = await this.leaveRequestRepo.save(request);
-    this.logger.log(`Manager #${managerId} approved leave request #${requestId}`);
-    this.afterDecision(request.employeeId, request.leaveType.name, true).catch(() => {});
+    this.logger.log(`Employee #${managerId} (roles: ${callerRoles.join(',')}) approved leave #${requestId} → ${saved.status}`);
+
+    // Only send LINE notification when fully approved
+    if (saved.status === LeaveRequestStatus.APPROVED) {
+      this.afterDecision(request.employeeId, request.leaveType.name, true).catch(() => {});
+    }
     return saved;
   }
 
   async reject(requestId: number, managerId: number, dto: RejectLeaveDto): Promise<LeaveRequest> {
     const request = await this.findOrFail(requestId);
 
-    if (request.status !== LeaveRequestStatus.PENDING) {
+    if (
+      request.status !== LeaveRequestStatus.PENDING &&
+      request.status !== LeaveRequestStatus.MANAGER_APPROVED
+    ) {
       throw new BadRequestException(
         `Leave request #${requestId} is already ${request.status} and cannot be rejected.`,
       );
@@ -148,7 +178,10 @@ export class LeaveService {
 
   async getPendingApprovals(_managerId: number): Promise<LeaveRequest[]> {
     return this.leaveRequestRepo.find({
-      where: { status: LeaveRequestStatus.PENDING },
+      where: [
+        { status: LeaveRequestStatus.PENDING },
+        { status: LeaveRequestStatus.MANAGER_APPROVED },
+      ],
       relations: ['leaveType'],
       order: { createdAt: 'ASC' },
     });

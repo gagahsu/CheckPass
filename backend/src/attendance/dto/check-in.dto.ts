@@ -1,9 +1,12 @@
 import {
+  IsBoolean,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -93,4 +96,21 @@ export class AttendanceQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+}
+
+export class CreateWorkplaceDto {
+  @IsString() @MaxLength(100) name: string;
+  @IsNumber() latitude: number;
+  @IsNumber() longitude: number;
+  @IsOptional() @IsInt() @Min(50) @Max(5000) gpsRadiusMeters?: number;
+  @IsOptional() @IsString() wifiSsids?: string;
+}
+
+export class UpdateWorkplaceDto {
+  @IsOptional() @IsString() @MaxLength(100) name?: string;
+  @IsOptional() @IsNumber() latitude?: number;
+  @IsOptional() @IsNumber() longitude?: number;
+  @IsOptional() @IsInt() @Min(50) @Max(5000) gpsRadiusMeters?: number;
+  @IsOptional() @IsString() wifiSsids?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }

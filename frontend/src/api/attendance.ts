@@ -8,6 +8,7 @@ import type {
   WorkHoursSummary,
   DashboardStats,
   PagedResponse,
+  WorkplaceSetting,
 } from '@/types'
 
 export const attendanceApi = {
@@ -43,5 +44,18 @@ export const attendanceApi = {
     return apiClient
       .get<DepartmentSummary>('/attendance/department-summary', { params: { date } })
       .then((r) => r.data)
+  },
+
+  listWorkplaces(): Promise<WorkplaceSetting[]> {
+    return apiClient.get<WorkplaceSetting[]>('/attendance/workplaces').then((r) => r.data)
+  },
+  createWorkplace(data: Partial<WorkplaceSetting>): Promise<WorkplaceSetting> {
+    return apiClient.post<WorkplaceSetting>('/attendance/workplaces', data).then((r) => r.data)
+  },
+  updateWorkplace(id: number, data: Partial<WorkplaceSetting>): Promise<WorkplaceSetting> {
+    return apiClient.patch<WorkplaceSetting>(`/attendance/workplaces/${id}`, data).then((r) => r.data)
+  },
+  deleteWorkplace(id: number): Promise<void> {
+    return apiClient.delete(`/attendance/workplaces/${id}`).then(() => undefined)
   },
 }

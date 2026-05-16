@@ -57,6 +57,14 @@ export class Payroll {
   })
   deduction: number;
 
+  /** National Health Insurance employee portion (健保費員工自付) */
+  @Column({ name: 'nhi_deduction', type: 'decimal', precision: 10, scale: 2, default: 0 })
+  nhiDeduction: number;
+
+  /** Labor Insurance employee portion (勞保費員工自付) */
+  @Column({ name: 'labor_deduction', type: 'decimal', precision: 10, scale: 2, default: 0 })
+  laborDeduction: number;
+
   /** Net pay: base_salary + overtime_pay - deduction */
   @Column({
     name: 'total_salary',

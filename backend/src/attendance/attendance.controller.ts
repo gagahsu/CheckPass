@@ -2,11 +2,15 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
+  Delete,
   Body,
   Query,
+  Param,
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -14,9 +18,10 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiQuery,
+  ApiParam,
 } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
-import { CheckInDto, CheckOutDto, AttendanceQueryDto } from './dto/check-in.dto';
+import { CheckInDto, CheckOutDto, AttendanceQueryDto, CreateWorkplaceDto, UpdateWorkplaceDto } from './dto/check-in.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard, JwtPayload } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -91,5 +96,46 @@ export class AttendanceController {
     @Query('date') date: string,
   ) {
     return this.attendanceService.getDepartmentSummary(user.employeeId, date);
+  }
+
+  // ─── Workplace Settings (admin) ──────────────────────────────────────────────
+
+  @Get('workplaces')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '工作地點列表（admin）' })
+  async listWorkplaces() {
+    return this.attendanceService.listWorkplaces();
+  }
+
+  @Post('workplaces')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: '新增工作地點（admin）' })
+  async createWorkplace(@Body() dto: CreateWorkplaceDto) {
+    return this.attendanceService.createWorkplace(dto);
+  }
+
+  @Patch('workplaces/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: '更新工作地點（admin）' })
+  @ApiParam({ name: 'id', type: Number })
+  async updateWorkplace(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateWorkplaceDto,
+  ) {
+    return this.attendanceService.updateWorkplace(id, dto);
+  }
+
+  @Delete('workplaces/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '刪除工作地點（admin）' })
+  @ApiParam({ name: 'id', type: Number })
+  async deleteWorkplace(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.attendanceService.deleteWorkplace(id);
   }
 }

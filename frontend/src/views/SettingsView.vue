@@ -16,6 +16,15 @@
           班別設定
         </button>
         <button
+          v-if="isAdmin"
+          class="tab-btn"
+          :class="{ active: activeTab === 'workplaces' }"
+          @click="switchToWorkplaces"
+        >
+          <i class="pi pi-map-marker"></i>
+          工作地點
+        </button>
+        <button
           class="tab-btn"
           :class="{ active: activeTab === 'roles' }"
           @click="activeTab = 'roles'"
@@ -116,6 +125,100 @@
         </Card>
       </template>
 
+      <!-- Workplaces Tab -->
+      <template v-if="activeTab === 'workplaces'">
+        <Card class="action-card">
+          <template #title>
+            <div class="card-title-row">
+              <span>工作地點清單</span>
+              <Button label="新增工作地點" icon="pi pi-plus" size="small" @click="openWpDialog()" />
+            </div>
+          </template>
+          <template #content>
+            <div v-if="wpLoading" class="loading-state">
+              <i class="pi pi-spin pi-spinner"></i>
+              <span>載入中...</span>
+            </div>
+            <div v-else-if="wpError" class="error-state">
+              <i class="pi pi-exclamation-triangle"></i>
+              <span>{{ wpError }}</span>
+            </div>
+            <div v-else-if="workplaces.length === 0" class="empty-state">
+              <i class="pi pi-map-marker"></i>
+              <p>尚無工作地點設定</p>
+            </div>
+            <div v-else class="wp-list">
+              <div v-for="wp in workplaces" :key="wp.id" class="wp-item">
+                <div class="wp-item-header">
+                  <span class="wp-item-name">{{ wp.name }}</span>
+                  <span :class="['wp-status-badge', wp.isActive ? 'wp-active' : 'wp-inactive']">
+                    {{ wp.isActive ? '啟用' : '停用' }}
+                  </span>
+                </div>
+                <div class="wp-item-details">
+                  <span><i class="pi pi-compass"></i> {{ wp.latitude }}, {{ wp.longitude }}</span>
+                  <span><i class="pi pi-circle"></i> GPS 範圍 {{ wp.gpsRadiusMeters }} 公尺</span>
+                  <span v-if="wp.wifiSsids"><i class="pi pi-wifi"></i> {{ wp.wifiSsids }}</span>
+                </div>
+                <div class="wp-item-actions">
+                  <Button icon="pi pi-pencil" size="small" severity="secondary" text @click="openWpDialog(wp)" />
+                  <Button icon="pi pi-trash" size="small" severity="danger" text @click="confirmDeleteWp(wp)" />
+                </div>
+              </div>
+            </div>
+          </template>
+        </Card>
+
+        <!-- Workplace Dialog -->
+        <Dialog v-model:visible="wpDialogVisible" :header="editingWp ? '編輯工作地點' : '新增工作地點'" modal :style="{ width: '440px' }">
+          <div class="add-form-grid">
+            <div class="form-group">
+              <label class="form-label">地點名稱 <span class="required">*</span></label>
+              <InputText v-model="wpForm.name" placeholder="例：台北辦公室" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">緯度 <span class="required">*</span></label>
+              <InputText v-model.number="wpForm.latitude" type="number" step="0.000001" placeholder="25.033964" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">經度 <span class="required">*</span></label>
+              <InputText v-model.number="wpForm.longitude" type="number" step="0.000001" placeholder="121.564468" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">GPS 範圍（公尺）</label>
+              <InputText v-model.number="wpForm.gpsRadiusMeters" type="number" min="50" max="5000" placeholder="200" />
+            </div>
+            <div class="form-group" style="grid-column: 1 / -1">
+              <label class="form-label">WiFi SSID（逗號分隔）</label>
+              <InputText v-model="wpForm.wifiSsids" placeholder="例：Office-5G,Office-2.4G" />
+            </div>
+            <div v-if="editingWp" class="form-group" style="grid-column: 1 / -1">
+              <label class="form-label">
+                <input type="checkbox" v-model="wpForm.isActive" style="margin-right: 0.4rem" />
+                啟用此地點
+              </label>
+            </div>
+          </div>
+          <div v-if="wpFormError" class="form-error">
+            <i class="pi pi-exclamation-triangle"></i>
+            {{ wpFormError }}
+          </div>
+          <template #footer>
+            <Button label="取消" severity="secondary" size="small" @click="wpDialogVisible = false" />
+            <Button :label="editingWp ? '儲存' : '新增'" icon="pi pi-check" size="small" :loading="wpSaving" @click="handleSaveWp" />
+          </template>
+        </Dialog>
+
+        <!-- Delete Confirm Dialog -->
+        <Dialog v-model:visible="wpDeleteDialogVisible" header="確認刪除" modal :style="{ width: '360px' }">
+          <p>確定要刪除工作地點「{{ wpDeleteTarget?.name }}」嗎？此操作無法復原。</p>
+          <template #footer>
+            <Button label="取消" severity="secondary" @click="wpDeleteDialogVisible = false" />
+            <Button label="刪除" severity="danger" :loading="wpDeleting" @click="doDeleteWp" />
+          </template>
+        </Dialog>
+      </template>
+
       <!-- Role Permissions -->
       <template v-if="activeTab === 'roles'">
         <Card class="action-card">
@@ -159,20 +262,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import Dialog from 'primevue/dialog'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import { shiftApi } from '@/api/shift'
-import type { ShiftType } from '@/types'
+import { attendanceApi } from '@/api/attendance'
+import type { ShiftType, WorkplaceSetting } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
 
 const toast = useToast()
+const authStore = useAuthStore()
 
-const activeTab = ref<'shifts' | 'roles'>('shifts')
+const isAdmin = computed(() => authStore.hasRole('admin'))
+
+const activeTab = ref<'shifts' | 'workplaces' | 'roles'>('shifts')
 const shiftTypes = ref<ShiftType[]>([])
 const shiftsLoading = ref(false)
 const shiftsError = ref<string | null>(null)
@@ -309,6 +418,105 @@ async function loadShiftTypes(): Promise<void> {
     shiftsError.value = '無法載入班別清單'
   } finally {
     shiftsLoading.value = false
+  }
+}
+
+// ─── Workplaces ───────────────────────────────────────────────────────────────
+
+const workplaces = ref<WorkplaceSetting[]>([])
+const wpLoading = ref(false)
+const wpError = ref<string | null>(null)
+const wpDialogVisible = ref(false)
+const editingWp = ref<WorkplaceSetting | null>(null)
+const wpForm = ref({ name: '', latitude: 0, longitude: 0, gpsRadiusMeters: 200, wifiSsids: '', isActive: true })
+const wpFormError = ref<string | null>(null)
+const wpSaving = ref(false)
+const wpDeleteDialogVisible = ref(false)
+const wpDeleteTarget = ref<WorkplaceSetting | null>(null)
+const wpDeleting = ref(false)
+
+async function loadWorkplaces(): Promise<void> {
+  wpLoading.value = true
+  wpError.value = null
+  try {
+    workplaces.value = await attendanceApi.listWorkplaces()
+  } catch {
+    wpError.value = '無法載入工作地點清單'
+  } finally {
+    wpLoading.value = false
+  }
+}
+
+function switchToWorkplaces(): void {
+  activeTab.value = 'workplaces'
+  if (workplaces.value.length === 0) loadWorkplaces()
+}
+
+function openWpDialog(wp?: WorkplaceSetting): void {
+  editingWp.value = wp ?? null
+  wpForm.value = {
+    name: wp?.name ?? '',
+    latitude: wp ? Number(wp.latitude) : 0,
+    longitude: wp ? Number(wp.longitude) : 0,
+    gpsRadiusMeters: wp?.gpsRadiusMeters ?? 200,
+    wifiSsids: wp?.wifiSsids ?? '',
+    isActive: wp?.isActive ?? true,
+  }
+  wpFormError.value = null
+  wpDialogVisible.value = true
+}
+
+async function handleSaveWp(): Promise<void> {
+  wpFormError.value = null
+  if (!wpForm.value.name.trim()) {
+    wpFormError.value = '地點名稱不能為空'
+    return
+  }
+  wpSaving.value = true
+  try {
+    const payload = {
+      name: wpForm.value.name.trim(),
+      latitude: wpForm.value.latitude,
+      longitude: wpForm.value.longitude,
+      gpsRadiusMeters: wpForm.value.gpsRadiusMeters,
+      wifiSsids: wpForm.value.wifiSsids.trim() || null,
+      isActive: wpForm.value.isActive,
+    }
+    if (editingWp.value) {
+      const updated = await attendanceApi.updateWorkplace(editingWp.value.id, payload)
+      const idx = workplaces.value.findIndex((w) => w.id === editingWp.value!.id)
+      if (idx >= 0) workplaces.value[idx] = updated
+      toast.add({ severity: 'success', summary: '工作地點已更新', life: 3000 })
+    } else {
+      const created = await attendanceApi.createWorkplace(payload)
+      workplaces.value.push(created)
+      toast.add({ severity: 'success', summary: '工作地點已新增', life: 3000 })
+    }
+    wpDialogVisible.value = false
+  } catch {
+    wpFormError.value = '操作失敗，請稍後再試'
+  } finally {
+    wpSaving.value = false
+  }
+}
+
+function confirmDeleteWp(wp: WorkplaceSetting): void {
+  wpDeleteTarget.value = wp
+  wpDeleteDialogVisible.value = true
+}
+
+async function doDeleteWp(): Promise<void> {
+  if (!wpDeleteTarget.value) return
+  wpDeleting.value = true
+  try {
+    await attendanceApi.deleteWorkplace(wpDeleteTarget.value.id)
+    workplaces.value = workplaces.value.filter((w) => w.id !== wpDeleteTarget.value!.id)
+    wpDeleteDialogVisible.value = false
+    toast.add({ severity: 'success', summary: '工作地點已刪除', life: 3000 })
+  } catch {
+    toast.add({ severity: 'error', summary: '刪除失敗', life: 3000 })
+  } finally {
+    wpDeleting.value = false
   }
 }
 
@@ -529,5 +737,74 @@ onMounted(() => {
 .empty-state i {
   font-size: 2rem;
   color: #d1d5db;
+}
+
+/* ─── Workplace ─────────────────────────────────────────────────── */
+
+.wp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.wp-item {
+  padding: 0.875rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem;
+}
+
+.wp-item-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  grid-column: 1;
+}
+
+.wp-item-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #111827;
+}
+
+.wp-status-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.wp-active {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.wp-inactive {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+.wp-item-details {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.wp-item-details i {
+  margin-right: 0.25rem;
+}
+
+.wp-item-actions {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
 }
 </style>

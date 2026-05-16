@@ -113,7 +113,7 @@ export class LeaveController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApproveLeaveDto,
   ) {
-    return this.leaveService.approve(id, user.employeeId, dto.comment);
+    return this.leaveService.approve(id, user.employeeId, user.roles, dto.comment);
   }
 
   /**

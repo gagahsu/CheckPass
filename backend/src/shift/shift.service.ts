@@ -5,10 +5,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository } from 'typeorm';
 import { ShiftType } from './entities/shift-type.entity';
 import { ShiftSchedule, ScheduleStatus } from './entities/shift-schedule.entity';
 import { CreateShiftTypeDto, AssignShiftDto, PublishScheduleDto } from './dto/shift.dto';
+import { Employee } from '../auth/entities/employee.entity';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class ShiftService {
@@ -19,6 +21,9 @@ export class ShiftService {
     private readonly shiftTypeRepo: Repository<ShiftType>,
     @InjectRepository(ShiftSchedule)
     private readonly scheduleRepo: Repository<ShiftSchedule>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -150,6 +155,10 @@ export class ShiftService {
     this.logger.log(
       `Published ${drafts.length} schedules for store #${dto.storeId}, week of ${dto.weekStart}`,
     );
+
+    // Notify affected employees via LINE (async, don't block response)
+    void this.afterPublish(dto.storeId, drafts);
+
     return { published: drafts.length };
   }
 
@@ -192,6 +201,18 @@ export class ShiftService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  private async afterPublish(storeId: number, drafts: ShiftSchedule[]): Promise<void> {
+    const uniqueEmployeeIds = [...new Set(drafts.map(s => s.employeeId))];
+    for (const empId of uniqueEmployeeIds) {
+      const employee = await this.employeeRepo.findOne({ where: { id: empId } });
+      if (employee?.lineUserId) {
+        await this.notificationService
+          .sendLinePush(employee.lineUserId, `${employee.name} 您好！\n本週班表已發布，請確認您的排班。`)
+          .catch(() => {});
+      }
+    }
+  }
 
   private validateTimeRange(startTime: string, endTime: string): void {
     const [startH, startM] = startTime.split(':').map(Number);

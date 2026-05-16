@@ -10,6 +10,10 @@ import { HrController } from './hr.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { Employee } from './entities/employee.entity';
 import { Role } from './entities/role.entity';
+import { Department } from './entities/department.entity';
+import { Position } from './entities/position.entity';
+import { OrgService } from './org.service';
+import { OrgController } from './org.controller';
 
 @Module({
   imports: [
@@ -22,10 +26,10 @@ import { Role } from './entities/role.entity';
         signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN', '7d') },
       }),
     }),
-    TypeOrmModule.forFeature([Employee, Role]),
+    TypeOrmModule.forFeature([Employee, Role, Department, Position]),
   ],
-  controllers: [AuthController, HrController],
-  providers: [AuthService, HrService, JwtStrategy],
+  controllers: [AuthController, HrController, OrgController],
+  providers: [AuthService, HrService, JwtStrategy, OrgService],
   exports: [JwtModule, PassportModule, TypeOrmModule],
 })
 export class AuthModule {}

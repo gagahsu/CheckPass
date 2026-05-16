@@ -111,14 +111,29 @@
               <template #body="{ data }">{{ calcDays(data.startDate, data.endDate) }} 天</template>
             </Column>
             <Column field="reason" header="原因" style="max-width: 180px;" />
-            <Column header="操作" style="min-width: 160px;">
+            <Column header="狀態" style="min-width: 100px;">
+              <template #body="{ data }">
+                <Tag :value="statusLabel(data.status)" :severity="statusSeverity(data.status)" />
+              </template>
+            </Column>
+            <Column header="操作" style="min-width: 200px;">
               <template #body="{ data }">
                 <div class="action-btns">
                   <Button
+                    v-if="data.status === 'pending'"
                     label="核准"
                     icon="pi pi-check"
                     size="small"
                     severity="success"
+                    :loading="approvingId === data.id"
+                    @click="handleApprove(data.id)"
+                  />
+                  <Button
+                    v-if="data.status === 'manager_approved' && (authStore.hasRole('hr') || authStore.hasRole('admin'))"
+                    label="HR確認"
+                    icon="pi pi-verified"
+                    size="small"
+                    severity="info"
                     :loading="approvingId === data.id"
                     @click="handleApprove(data.id)"
                   />
@@ -204,6 +219,7 @@ const rejectReason = ref('')
 function statusLabel(status: LeaveStatus): string {
   const map: Record<LeaveStatus, string> = {
     pending: '待審核',
+    manager_approved: '主管審核',
     approved: '已核准',
     rejected: '已拒絕',
     cancelled: '已取消'
@@ -214,6 +230,7 @@ function statusLabel(status: LeaveStatus): string {
 function statusSeverity(status: LeaveStatus): string {
   const map: Record<LeaveStatus, string> = {
     pending: 'warn',
+    manager_approved: 'info',
     approved: 'success',
     rejected: 'danger',
     cancelled: 'secondary'
@@ -259,9 +276,17 @@ function switchToPending(): void {
 async function handleApprove(id: number): Promise<void> {
   approvingId.value = id
   try {
-    await leaveApi.approve(id)
-    pendingRequests.value = pendingRequests.value.filter((r) => r.id !== id)
-    toast.add({ severity: 'success', summary: '已核准假單', life: 3000 })
+    const updated = await leaveApi.approve(id)
+    if (updated.status === 'approved') {
+      // Fully approved — remove from pending list
+      pendingRequests.value = pendingRequests.value.filter((r) => r.id !== id)
+      toast.add({ severity: 'success', summary: '已核准假單', life: 3000 })
+    } else {
+      // manager_approved — update in list
+      const idx = pendingRequests.value.findIndex((r) => r.id === id)
+      if (idx >= 0) pendingRequests.value[idx] = updated
+      toast.add({ severity: 'info', summary: '主管審核完成，等待 HR 確認', life: 4000 })
+    }
   } catch {
     toast.add({ severity: 'error', summary: '核准失敗', life: 3000 })
   } finally {

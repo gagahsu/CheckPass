@@ -79,6 +79,12 @@ const router = createRouter({
       meta: { title: '員工詳情 - CheckPass 打卡通', requiresAuth: true }
     },
     {
+      path: '/hr/org',
+      name: 'org',
+      component: () => import('@/views/OrgView.vue'),
+      meta: { title: '組織管理 - CheckPass 打卡通', requiresAuth: true }
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),

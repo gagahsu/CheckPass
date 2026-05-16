@@ -75,6 +75,26 @@
         </div>
 
         <Card class="stats-card">
+          <template #title>扣款明細</template>
+          <template #content>
+            <div class="work-stats">
+              <div class="stat-item">
+                <span class="stat-label">健保費</span>
+                <span class="stat-val deduction-red">-{{ formatCurrency(payroll.nhiDeduction) }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">勞保費</span>
+                <span class="stat-val deduction-red">-{{ formatCurrency(payroll.laborDeduction) }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">合計扣款</span>
+                <span class="stat-val deduction-red">-{{ formatCurrency(payroll.deduction) }}</span>
+              </div>
+            </div>
+          </template>
+        </Card>
+
+        <Card class="stats-card">
           <template #title>出勤統計</template>
           <template #content>
             <div class="work-stats">
@@ -334,6 +354,10 @@ onMounted(() => {
   font-size: 1.1rem;
   font-weight: 600;
   color: #111827;
+}
+
+.stat-val.deduction-red {
+  color: #dc2626;
 }
 
 .hr-controls {
