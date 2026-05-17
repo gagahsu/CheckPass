@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <Toast />
     <div class="employee-list-page">
       <div class="page-header">
         <h2 class="page-title">員工管理</h2>
@@ -32,6 +33,22 @@
             <label class="form-label">到職日期</label>
             <InputText v-model="createForm.hireDate" type="date" class="w-full" />
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">部門</label>
+              <select v-model="createForm.departmentId" class="p-inputtext w-full" @change="createForm.positionId = null">
+                <option :value="null">-- 不指定 --</option>
+                <option v-for="d in departments" :key="d.id" :value="Number(d.id)">{{ d.name }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">職位</label>
+              <select v-model="createForm.positionId" class="p-inputtext w-full">
+                <option :value="null">-- 不指定 --</option>
+                <option v-for="p in filteredPositions(createForm.departmentId)" :key="p.id" :value="Number(p.id)">{{ p.name }}</option>
+              </select>
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">角色</label>
             <div class="role-checks">
@@ -46,6 +63,67 @@
         <template #footer>
           <Button label="取消" severity="secondary" @click="showCreateDialog = false" />
           <Button label="建立並通知" icon="pi pi-send" :loading="creating" @click="handleCreate" />
+        </template>
+      </Dialog>
+
+      <!-- Edit Employee Dialog -->
+      <Dialog
+        v-model:visible="showEditDialog"
+        header="編輯員工"
+        :modal="true"
+        :style="{ width: '420px' }"
+      >
+        <div class="create-form">
+          <div class="form-group">
+            <label class="form-label">姓名 <span class="required">*</span></label>
+            <InputText v-model="editForm.name" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <InputText v-model="editForm.email" type="email" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">到職日期</label>
+            <InputText v-model="editForm.hireDate" type="date" class="w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">狀態</label>
+            <select v-model="editForm.status" class="p-inputtext w-full">
+              <option value="active">在職</option>
+              <option value="inactive">停用</option>
+              <option value="resigned">離職</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">部門</label>
+              <select v-model="editForm.departmentId" class="p-inputtext w-full" @change="editForm.positionId = null">
+                <option :value="null">-- 不指定 --</option>
+                <option v-for="d in departments" :key="d.id" :value="Number(d.id)">{{ d.name }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">職位</label>
+              <select v-model="editForm.positionId" class="p-inputtext w-full">
+                <option :value="null">-- 不指定 --</option>
+                <option v-for="p in filteredPositions(editForm.departmentId)" :key="p.id" :value="Number(p.id)">{{ p.name }}</option>
+              </select>
+            </div>
+          </div>
+          <div v-if="authStore.hasRole('admin')" class="form-group">
+            <label class="form-label">角色</label>
+            <div class="role-checks">
+              <label v-for="r in allRoles" :key="r.value" class="role-check-item">
+                <input type="checkbox" :value="r.value" v-model="editForm.roleNames" />
+                {{ r.label }}
+              </label>
+            </div>
+          </div>
+          <div v-if="editError" class="create-error">{{ editError }}</div>
+        </div>
+        <template #footer>
+          <Button label="取消" severity="secondary" @click="showEditDialog = false" />
+          <Button label="儲存" icon="pi pi-check" :loading="saving" @click="handleEdit" />
         </template>
       </Dialog>
 
@@ -132,16 +210,26 @@
                 <Tag :value="statusLabel(data.status)" :severity="statusSeverity(data.status)" />
               </template>
             </Column>
-            <Column header="操作" style="min-width: 80px;">
+            <Column header="操作" style="min-width: 120px;">
               <template #body="{ data }">
-                <Button
-                  icon="pi pi-eye"
-                  text
-                  severity="info"
-                  size="small"
-                  v-tooltip="'查看詳情'"
-                  @click="router.push(`/hr/employees/${data.id}`)"
-                />
+                <div class="action-btns">
+                  <Button
+                    icon="pi pi-pencil"
+                    text
+                    severity="secondary"
+                    size="small"
+                    v-tooltip="'編輯'"
+                    @click="openEditDialog(data)"
+                  />
+                  <Button
+                    icon="pi pi-eye"
+                    text
+                    severity="info"
+                    size="small"
+                    v-tooltip="'查看詳情'"
+                    @click="router.push(`/hr/employees/${data.id}`)"
+                  />
+                </div>
               </template>
             </Column>
           </DataTable>
@@ -154,6 +242,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useToast } from 'primevue/usetoast'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -162,12 +251,15 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import Avatar from 'primevue/avatar'
+import Toast from 'primevue/toast'
 import { hrApi } from '@/api/hr'
-import type { Employee, EmployeeStatus, RoleName } from '@/types'
+import { orgApi } from '@/api/org'
+import type { Employee, EmployeeStatus, RoleName, Department, Position } from '@/types'
 import { useAuthStore } from '@/stores/auth'
 import AppLayout from '@/components/AppLayout.vue'
 
 const router = useRouter()
+const toast = useToast()
 const authStore = useAuthStore()
 const canCreate = computed(() => authStore.hasRole('hr') || authStore.hasRole('admin'))
 
@@ -177,11 +269,29 @@ const error = ref<string | null>(null)
 const searchQuery = ref('')
 const filterStatus = ref('')
 
+const departments = ref<Department[]>([])
+const positions = ref<Position[]>([])
+
+async function loadOrgData(): Promise<void> {
+  try {
+    const [depts, pos] = await Promise.all([orgApi.listDepartments(), orgApi.listPositions()])
+    departments.value = depts
+    positions.value = pos
+  } catch (e) {
+    console.error('loadOrgData failed', e)
+  }
+}
+
+function filteredPositions(departmentId: number | null): Position[] {
+  if (!departmentId) return positions.value
+  return positions.value.filter((p) => Number(p.departmentId) === Number(departmentId))
+}
+
 // ─── Create dialog ────────────────────────────────────────────────────────────
 const showCreateDialog = ref(false)
 const creating = ref(false)
 const createError = ref<string | null>(null)
-const createForm = ref({ name: '', email: '', hireDate: '', roleNames: ['employee'] as RoleName[] })
+const createForm = ref({ name: '', email: '', hireDate: '', roleNames: ['employee'] as RoleName[], departmentId: null as number | null, positionId: null as number | null })
 
 const allRoles: { value: RoleName; label: string }[] = [
   { value: 'employee', label: '員工' },
@@ -190,8 +300,60 @@ const allRoles: { value: RoleName; label: string }[] = [
   { value: 'admin', label: '管理員' },
 ]
 
+// ─── Edit dialog ─────────────────────────────────────────────────────────────
+const showEditDialog = ref(false)
+const saving = ref(false)
+const editError = ref<string | null>(null)
+const editingId = ref<number | null>(null)
+const editForm = ref({ name: '', email: '', hireDate: '', status: 'active', roleNames: ['employee'] as RoleName[], departmentId: null as number | null, positionId: null as number | null })
+
+function openEditDialog(emp: Employee): void {
+  editingId.value = emp.id
+  editForm.value = {
+    name: emp.name,
+    email: emp.email ?? '',
+    hireDate: emp.hireDate ?? '',
+    status: emp.status,
+    roleNames: emp.roles?.map((r) => (typeof r === 'string' ? r : r.name)) as RoleName[] ?? ['employee'],
+    departmentId: emp.departmentId != null ? Number(emp.departmentId) : null,
+    positionId: emp.positionId != null ? Number(emp.positionId) : null,
+  }
+  editError.value = null
+  showEditDialog.value = true
+}
+
+async function handleEdit(): Promise<void> {
+  if (!editingId.value) return
+  if (!editForm.value.name.trim()) {
+    editError.value = '請輸入姓名'
+    return
+  }
+  saving.value = true
+  editError.value = null
+  try {
+    await hrApi.updateEmployee(editingId.value, {
+      name: editForm.value.name.trim(),
+      email: editForm.value.email.trim() || undefined,
+      hireDate: editForm.value.hireDate || undefined,
+      status: editForm.value.status,
+      departmentId: editForm.value.departmentId,
+      positionId: editForm.value.positionId,
+    })
+    if (authStore.hasRole('admin')) {
+      await hrApi.assignRoles(editingId.value, editForm.value.roleNames)
+    }
+    showEditDialog.value = false
+    toast.add({ severity: 'success', summary: '員工資料已更新', life: 3000 })
+    await loadEmployees()
+  } catch {
+    editError.value = '儲存失敗，請稍後再試'
+  } finally {
+    saving.value = false
+  }
+}
+
 function openCreateDialog(): void {
-  createForm.value = { name: '', email: '', hireDate: '', roleNames: ['employee'] }
+  createForm.value = { name: '', email: '', hireDate: '', roleNames: ['employee'], departmentId: null, positionId: null }
   createError.value = null
   showCreateDialog.value = true
 }
@@ -209,6 +371,8 @@ async function handleCreate(): Promise<void> {
       email: createForm.value.email.trim() || undefined,
       hireDate: createForm.value.hireDate || undefined,
       roleNames: createForm.value.roleNames,
+      departmentId: createForm.value.departmentId ?? undefined,
+      positionId: createForm.value.positionId ?? undefined,
     })
     showCreateDialog.value = false
     await loadEmployees()
@@ -273,6 +437,7 @@ async function loadEmployees(): Promise<void> {
 
 onMounted(() => {
   loadEmployees()
+  loadOrgData()
 })
 </script>
 
@@ -375,6 +540,12 @@ onMounted(() => {
   gap: 1rem;
 }
 
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -410,6 +581,11 @@ onMounted(() => {
   font-size: 0.875rem;
   color: #374151;
   cursor: pointer;
+}
+
+.action-btns {
+  display: flex;
+  gap: 0.25rem;
 }
 
 .create-error {

@@ -33,7 +33,21 @@ export class ShiftSchedule {
   shiftType: ShiftType;
 
   /** Scheduled work date (YYYY-MM-DD) */
-  @Column({ type: 'date' })
+  @Column({
+    type: 'date',
+    transformer: {
+      to: (v: string) => v,
+      from: (v: string | Date) => {
+        if (v instanceof Date) {
+          const y = v.getFullYear()
+          const m = String(v.getMonth() + 1).padStart(2, '0')
+          const d = String(v.getDate()).padStart(2, '0')
+          return `${y}-${m}-${d}`
+        }
+        return String(v).slice(0, 10)
+      },
+    },
+  })
   date: string;
 
   @Column({

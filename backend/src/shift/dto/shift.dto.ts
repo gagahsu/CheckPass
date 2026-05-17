@@ -64,6 +64,58 @@ export class CreateShiftTypeDto {
   color?: string;
 }
 
+export class UpdateShiftTypeDto {
+  @ApiPropertyOptional({ description: 'Shift name', example: '早班' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+
+  @ApiPropertyOptional({ description: 'Start time HH:MM', example: '09:00' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'startTime must be HH:MM' })
+  startTime?: string;
+
+  @ApiPropertyOptional({ description: 'End time HH:MM', example: '18:00' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'endTime must be HH:MM' })
+  endTime?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(480)
+  breakMinutes?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(60)
+  graceMinutes?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  minStaff?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  maxStaff?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/, { message: 'color must be a hex color like #06b6d4' })
+  color?: string;
+}
+
 export class AssignShiftDto {
   @ApiProperty({ description: 'Employee ID', example: 5 })
   @IsNumber()
@@ -76,6 +128,11 @@ export class AssignShiftDto {
   @ApiProperty({ description: 'Work date YYYY-MM-DD', example: '2026-05-20' })
   @IsDateString()
   date: string;
+
+  @ApiPropertyOptional({ description: 'Store ID (for context only)', example: 1 })
+  @IsOptional()
+  @IsNumber()
+  storeId?: number;
 }
 
 export class PublishScheduleDto {

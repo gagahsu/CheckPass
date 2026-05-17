@@ -1,4 +1,5 @@
-import { IsOptional, IsString, IsDateString, IsIn, IsArray, IsNotEmpty, IsEmail, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsDateString, IsIn, IsArray, IsNotEmpty, IsEmail, MaxLength, IsNumber } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 
 export class CreateEmployeeDto {
@@ -22,6 +23,18 @@ export class CreateEmployeeDto {
   @IsArray()
   @IsString({ each: true })
   roleNames?: string[];
+
+  @ApiPropertyOptional({ example: 1 })
+  @Transform(({ value }) => (value === null || value === '') ? undefined : Number(value))
+  @IsOptional()
+  @IsNumber()
+  departmentId?: number;
+
+  @ApiPropertyOptional({ example: 2 })
+  @Transform(({ value }) => (value === null || value === '') ? undefined : Number(value))
+  @IsOptional()
+  @IsNumber()
+  positionId?: number;
 }
 
 export class UpdateEmployeeDto {
@@ -44,6 +57,18 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsIn(['active', 'inactive', 'resigned'])
   status?: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @Transform(({ value }) => (value === null || value === '') ? undefined : Number(value))
+  @IsOptional()
+  @IsNumber()
+  departmentId?: number;
+
+  @ApiPropertyOptional({ example: 2 })
+  @Transform(({ value }) => (value === null || value === '') ? undefined : Number(value))
+  @IsOptional()
+  @IsNumber()
+  positionId?: number;
 }
 
 export class AssignRolesDto {

@@ -59,21 +59,25 @@ Single NestJS monolith (not microservices). All modules share one PostgreSQL dat
 ### Migrations
 - All migrations live in `backend/src/database/migrations/`
 - Naming: `1716000000000-InitSchema.ts`, `1716000000001-...`, etc. (increment last 3 digits)
-- Next migration number: **011**
+- Next migration number: **013**
 - Use `IF NOT EXISTS` / `IF EXISTS` in ALTER TABLE for idempotency
 
 ### TypeORM Entities
 - Use `@Column({ name: 'snake_case' })` when the TypeScript property name differs from the DB column name
-- Numeric primary keys are `bigint` in DB but `number` in TypeScript
+- Numeric primary keys are `bigint` in DB but `number` in TypeScript — **actual runtime value is a string** despite the TypeScript type; always use `Number(id)` before strict comparison (`===`)
 - Decimal columns come back as strings from PostgreSQL — wrap with `Number(...)` before arithmetic
+- `DATE` columns: `pg` driver is configured (via `types.setTypeParser(1082, ...)` in `main.ts`) to return plain `YYYY-MM-DD` strings instead of JavaScript Date objects — never use `toISOString()` to format dates; use local-time methods (`getFullYear/getMonth/getDate`) or the `addDays()` helper in shift.service.ts
+- Nullable foreign-key numbers in DTOs require `@Transform(({ value }) => ...)` before `@IsNumber()` — `@IsOptional()` alone does not handle `null` when `enableImplicitConversion: true` is set
 
 ### Guards & Decorators
 ```typescript
 @UseGuards(JwtAuthGuard)           // always for protected routes
 @UseGuards(RolesGuard)             // add when role restriction needed
 @Roles('hr', 'admin')              // roles: employee | manager | hr | admin
-@CurrentUser() user: JwtPayload    // { employeeId, roles, lineUserId }
+@CurrentUser() user: JwtPayload    // { employeeId, roles, name, empNo, lineUserId }
 ```
+
+JWT payload now includes `name`, `empNo`, `lineUserId` in addition to `employeeId` and `roles` — the frontend auth store reads these directly from the token without an extra API call.
 
 ### Frontend Auth
 ```typescript
@@ -95,12 +99,12 @@ backend/src/
 ├── app.module.ts
 ├── main.ts
 ├── auth/
-│   ├── auth.controller.ts        GET /auth/line/login-url, /auth/line/callback, /auth/profile
+│   ├── auth.controller.ts        GET /auth/line/login-url, /auth/line/callback, /auth/profile; POST /auth/dev-login (DEV only)
 │   ├── auth.service.ts
 │   ├── auth.module.ts            — registers Employee, Role, Department, Position, OrgService, OrgController
-│   ├── hr.controller.ts          GET/PATCH /hr/employees, /hr/employees/:id, /hr/employees/:id/roles
+│   ├── hr.controller.ts          GET/PATCH /hr/employees, /hr/employees/:id; PATCH /hr/employees/:id/roles (admin only)
 │   ├── hr.service.ts
-│   ├── hr.dto.ts
+│   ├── dto/hr.dto.ts             — CreateEmployeeDto, UpdateEmployeeDto (both accept departmentId, positionId), AssignRolesDto
 │   ├── org.controller.ts         CRUD /org/departments, /org/positions
 │   ├── org.service.ts
 │   ├── org.dto.ts
@@ -111,22 +115,22 @@ backend/src/
 │       ├── department.entity.ts
 │       └── position.entity.ts
 ├── attendance/
-│   ├── attendance.controller.ts  POST check-in/out, GET records/today/summary/dashboard-stats/department-summary, CRUD /workplaces
-│   ├── attendance.service.ts
+│   ├── attendance.controller.ts  POST check-in/out, GET records/today/summary/dashboard-stats/department-summary/trend/export; CRUD /workplaces (GET: manager+, write: admin)
+│   ├── attendance.service.ts     — GPS validation skipped if no active workplace configured (dev-friendly)
 │   ├── attendance.module.ts
 │   ├── attendance-scheduler.service.ts  — daily absent marking cron
-│   ├── dto/check-in.dto.ts       — includes CreateWorkplaceDto, UpdateWorkplaceDto
+│   ├── dto/check-in.dto.ts       — AttendanceQueryDto accepts both `limit` and `pageSize`; includes CreateWorkplaceDto, UpdateWorkplaceDto
 │   └── entities/
 │       ├── attendance-record.entity.ts
 │       └── workplace-setting.entity.ts
 ├── shift/
-│   ├── shift.controller.ts       GET/POST /shifts/types, /shifts/schedule, /shifts/my-schedule, DELETE, publish
+│   ├── shift.controller.ts       GET/POST/PATCH/DELETE /shifts/types/:id; GET/POST/DELETE /shifts/schedule; GET /shifts/my-schedule, /shifts/schedule/month; POST /shifts/schedule/publish
 │   ├── shift.service.ts
 │   ├── shift.module.ts
-│   ├── dto/shift.dto.ts
+│   ├── dto/shift.dto.ts          — CreateShiftTypeDto, UpdateShiftTypeDto, AssignShiftDto (accepts storeId), PublishScheduleDto
 │   └── entities/
-│       ├── shift-type.entity.ts  — columns: name (DB: shift_name), graceMinutes, color, minStaff, maxStaff
-│       └── shift-schedule.entity.ts
+│       ├── shift-type.entity.ts  — columns: name (DB: shift_name), graceMinutes, color, minStaff, maxStaff, updatedAt
+│       └── shift-schedule.entity.ts  — date column uses pg type parser to return YYYY-MM-DD string; has updatedAt
 ├── leave/
 │   ├── leave.controller.ts       GET types/my-requests/pending-approvals, POST apply, PATCH approve/reject/cancel
 │   ├── leave.service.ts          — approve() takes callerRoles[] for 2-stage logic
@@ -156,26 +160,26 @@ backend/src/
 └── database/
     ├── data-source.ts
     ├── database.module.ts
-    └── migrations/               — 000 through 008, next is 009
+    └── migrations/               — 000 through 012, next is 013
 ```
 
 ### Frontend
 ```
 frontend/src/
-├── main.ts                       — PrimeVue setup, global components
-├── App.vue                       — RouterView + Toast + InstallPrompt + SW registration
+├── main.ts                       — PrimeVue setup, global components, Tooltip directive registered
+├── App.vue                       — RouterView + Toast + InstallPrompt + SW registration (PROD only)
 ├── router/index.ts               — all routes with requiresAuth meta
 ├── stores/
 │   ├── auth.ts                   — user, token, hasRole(), initFromStorage()
 │   └── notification.ts
 ├── api/
 │   ├── index.ts                  — axios instance, baseURL: http://localhost:3000
-│   ├── attendance.ts             — checkIn/Out, getRecords, getWorkHoursSummary, getDashboardStats, getDepartmentSummary, CRUD workplaces
-│   ├── hr.ts                     — listEmployees, getEmployee, updateEmployee, assignRoles
+│   ├── attendance.ts             — checkIn/Out, getRecords, getWorkHoursSummary, getDashboardStats, getDepartmentSummary, getAttendanceTrend, exportCsv, CRUD workplaces
+│   ├── hr.ts                     — createEmployee, listEmployees, getEmployee, updateEmployee (accepts departmentId/positionId), assignRoles
 │   ├── org.ts                    — CRUD departments + positions
 │   ├── leave.ts                  — getLeaveTypes, apply, getMyRequests, getPendingApprovals, approve, reject, cancel
 │   ├── payroll.ts                — getPayroll, listPayrolls, calculate, confirm
-│   └── shift.ts                  — getShiftTypes, createShiftType, getSchedule, getMySchedule, assignShift, removeShift, publishSchedule
+│   └── shift.ts                  — getShiftTypes, createShiftType, updateShiftType, deleteShiftType, getSchedule, getMonthSchedule, getMySchedule, assignShift, removeShift, publishSchedule
 ├── types/index.ts                — all shared TypeScript interfaces
 ├── components/
 │   ├── AppLayout.vue             — sidebar nav, top header, mobile menu, notification bell
@@ -221,7 +225,8 @@ Either stage can reject → REJECTED    (LINE push sent)
 
 ### GPS Check-in Validation
 - Haversine distance check against `workplace_settings.gps_radius_meters` (default 200m)
-- Speed anomaly: rejects if > 200 km/h since last check-in
+- If **no active workplace is configured**, GPS/WiFi distance checks are skipped with a warning log (dev-friendly; add a workplace in Settings to enforce location)
+- Speed anomaly: logs warning if > 300 km/h since last check-out (does not block check-in)
 - WiFi SSID check against `workplace_settings.wifi_ssids` (comma-separated)
 
 ### RBAC Sidebar Visibility
@@ -231,6 +236,11 @@ manager   — + bi-dashboard
 hr        — + bi-dashboard, employee-list, org
 admin     — + bi-dashboard, employee-list, org, settings
 ```
+
+### Role-based API Access (key restrictions)
+- `assignRoles` (`PATCH /hr/employees/:id/roles`) — **admin only**; frontend hides role selector and skips this call for non-admin
+- `CRUD workplaces` write — admin only; `GET /attendance/workplaces` — manager/hr/admin
+- `createEmployee`, `updateEmployee` — hr/admin
 
 ## Environment Variables
 
@@ -273,9 +283,13 @@ Missing LINE/Mailjet keys cause the notification to be silently skipped — the 
 |---------|-------|
 | QR Code 打卡 | Phase 2 spec item |
 | WiFi 打卡獨立流程 | SSID check exists in GPS path; no dedicated WiFi-only check-in UI |
-| 排班衝突：低於最少人數警示 | minStaff stored, no UI indicator |
-| 排班衝突：週工時上限警告 | Not computed or shown |
 | 報表匯出 PDF | CSV implemented; PDF not |
 | Docker / docker-compose | backend Dockerfile exists, no compose file |
 | 壓力測試 | Phase 3 |
 | 人臉辨識 / Multi-tenant / i18n | Post-MVP roadmap items |
+
+## Dev Login (Local Testing)
+
+`POST /auth/dev-login` (blocked in production) returns `{ accessToken, employee }`.
+
+The login page shows a "開發模式快速登入" panel (only when `import.meta.env.DEV`) with an employee ID input. Enter any valid employee ID to log in without LINE OAuth.

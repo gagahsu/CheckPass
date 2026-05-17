@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ShiftType } from './entities/shift-type.entity';
 import { ShiftSchedule, ScheduleStatus } from './entities/shift-schedule.entity';
-import { CreateShiftTypeDto, AssignShiftDto, PublishScheduleDto } from './dto/shift.dto';
+import { CreateShiftTypeDto, UpdateShiftTypeDto, AssignShiftDto, PublishScheduleDto } from './dto/shift.dto';
 import { Employee } from '../auth/entities/employee.entity';
 import { LeaveRequest } from '../leave/entities/leave-request.entity';
 import { NotificationService } from '../notification/notification.service';
@@ -68,6 +68,41 @@ export class ShiftService {
     const saved = await this.shiftTypeRepo.save(shiftType);
     this.logger.log(`Created shift type "${saved.name}" (id=${saved.id})`);
     return saved;
+  }
+
+  async updateShiftType(id: number, dto: UpdateShiftTypeDto): Promise<ShiftType> {
+    const shiftType = await this.shiftTypeRepo.findOne({ where: { id } });
+    if (!shiftType) throw new NotFoundException(`ShiftType #${id} not found`);
+
+    if (dto.startTime || dto.endTime) {
+      this.validateTimeRange(dto.startTime ?? shiftType.startTime, dto.endTime ?? shiftType.endTime);
+    }
+
+    if (dto.name !== undefined) shiftType.name = dto.name;
+    if (dto.startTime !== undefined) shiftType.startTime = dto.startTime;
+    if (dto.endTime !== undefined) shiftType.endTime = dto.endTime;
+    if (dto.breakMinutes !== undefined) shiftType.breakMinutes = dto.breakMinutes;
+    if (dto.graceMinutes !== undefined) shiftType.graceMinutes = dto.graceMinutes;
+    if (dto.minStaff !== undefined) shiftType.minStaff = dto.minStaff;
+    if (dto.maxStaff !== undefined) shiftType.maxStaff = dto.maxStaff;
+    if (dto.color !== undefined) shiftType.color = dto.color;
+
+    const saved = await this.shiftTypeRepo.save(shiftType);
+    this.logger.log(`Updated shift type "${saved.name}" (id=${saved.id})`);
+    return saved;
+  }
+
+  async deleteShiftType(id: number): Promise<void> {
+    const shiftType = await this.shiftTypeRepo.findOne({ where: { id } });
+    if (!shiftType) throw new NotFoundException(`ShiftType #${id} not found`);
+
+    const inUse = await this.scheduleRepo.count({ where: { shiftTypeId: id } });
+    if (inUse > 0) {
+      throw new BadRequestException(`此班別已有 ${inUse} 筆排班記錄，無法刪除。請先移除所有排班再刪除班別。`);
+    }
+
+    await this.shiftTypeRepo.remove(shiftType);
+    this.logger.log(`Deleted shift type #${id}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -267,6 +302,9 @@ export class ShiftService {
   private addDays(dateStr: string, days: number): string {
     const d = new Date(`${dateStr}T00:00:00`);
     d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
   }
 }

@@ -96,6 +96,13 @@ export class AttendanceQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({ example: 20 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
 }
 
 export class CreateWorkplaceDto {

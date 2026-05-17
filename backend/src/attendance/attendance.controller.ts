@@ -143,8 +143,8 @@ export class AttendanceController {
 
   @Get('workplaces')
   @UseGuards(RolesGuard)
-  @Roles('admin')
-  @ApiOperation({ summary: '工作地點列表（admin）' })
+  @Roles('manager', 'hr', 'admin')
+  @ApiOperation({ summary: '工作地點列表（manager+）' })
   async listWorkplaces() {
     return this.attendanceService.listWorkplaces();
   }

@@ -24,6 +24,14 @@ export const shiftApi = {
     return apiClient.post<ShiftType>('/shifts/types', data).then((r) => r.data)
   },
 
+  updateShiftType(id: number, data: Partial<CreateShiftTypePayload>): Promise<ShiftType> {
+    return apiClient.patch<ShiftType>(`/shifts/types/${id}`, data).then((r) => r.data)
+  },
+
+  deleteShiftType(id: number): Promise<void> {
+    return apiClient.delete(`/shifts/types/${id}`).then(() => undefined)
+  },
+
   getSchedule(storeId: number, weekStart: string): Promise<ScheduleEntry[]> {
     return apiClient
       .get<ScheduleEntry[]>('/shifts/schedule', { params: { storeId, weekStart } })

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -20,7 +21,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { ShiftService } from './shift.service';
-import { CreateShiftTypeDto, AssignShiftDto, PublishScheduleDto } from './dto/shift.dto';
+import { CreateShiftTypeDto, UpdateShiftTypeDto, AssignShiftDto, PublishScheduleDto } from './dto/shift.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -71,6 +72,33 @@ export class ShiftController {
   @ApiResponse({ status: 403, description: 'Forbidden — requires manager role' })
   async createShiftType(@Body() dto: CreateShiftTypeDto) {
     return this.shiftService.createShiftType(dto);
+  }
+
+  @Patch('types/:id')
+  @UseGuards(RolesGuard)
+  @Roles('manager', 'hr', 'admin')
+  @ApiOperation({ summary: 'Update shift type' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'Shift type updated' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  async updateShiftType(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateShiftTypeDto,
+  ) {
+    return this.shiftService.updateShiftType(id, dto);
+  }
+
+  @Delete('types/:id')
+  @UseGuards(RolesGuard)
+  @Roles('manager', 'hr', 'admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete shift type' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 204, description: 'Deleted' })
+  @ApiResponse({ status: 400, description: 'In use by existing schedules' })
+  @ApiResponse({ status: 404, description: 'Not found' })
+  async deleteShiftType(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.shiftService.deleteShiftType(id);
   }
 
   /**

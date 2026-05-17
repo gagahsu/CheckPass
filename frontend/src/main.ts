@@ -4,6 +4,7 @@ import PrimeVue from 'primevue/config'
 import Aura from '@primevue/themes/aura'
 import ToastService from 'primevue/toastservice'
 import DialogService from 'primevue/dialogservice'
+import Tooltip from 'primevue/tooltip'
 
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -35,6 +36,7 @@ app.use(PrimeVue, {
 })
 app.use(ToastService)
 app.use(DialogService)
+app.directive('tooltip', Tooltip)
 
 // Global component registration
 app.component('Button', Button)

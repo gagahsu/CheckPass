@@ -82,21 +82,29 @@ export class AttendanceService {
         throw new BadRequestException('GPS 打卡需要提供座標。');
       }
 
-      const workplace = await this.resolveWorkplace(dto.shiftScheduleId);
-      workplaceLat = Number(workplace.latitude);
-      workplaceLon = Number(workplace.longitude);
+      const workplace = await this.workplaceRepo.findOne({
+        where: { isActive: true },
+        order: { id: 'ASC' },
+      });
 
-      distanceMeters = this.haversineDistance(
-        dto.latitude,
-        dto.longitude,
-        workplaceLat,
-        workplaceLon,
-      );
+      if (workplace) {
+        workplaceLat = Number(workplace.latitude);
+        workplaceLon = Number(workplace.longitude);
 
-      if (distanceMeters > workplace.gpsRadiusMeters) {
-        throw new BadRequestException(
-          `距離工作地點太遠（${Math.round(distanceMeters)} 公尺），允許範圍 ${workplace.gpsRadiusMeters} 公尺。`,
+        distanceMeters = this.haversineDistance(
+          dto.latitude,
+          dto.longitude,
+          workplaceLat,
+          workplaceLon,
         );
+
+        if (distanceMeters > workplace.gpsRadiusMeters) {
+          throw new BadRequestException(
+            `距離工作地點太遠（${Math.round(distanceMeters)} 公尺），允許範圍 ${workplace.gpsRadiusMeters} 公尺。`,
+          );
+        }
+      } else {
+        this.logger.warn('No active workplace configured — skipping GPS distance check');
       }
     }
 
@@ -105,10 +113,17 @@ export class AttendanceService {
       if (!dto.wifiSsid) {
         throw new BadRequestException('WiFi 打卡需要提供 SSID。');
       }
-      const workplace = await this.resolveWorkplace(dto.shiftScheduleId);
-      const allowed = workplace.getAllowedSsids();
-      if (allowed.length > 0 && !allowed.includes(dto.wifiSsid)) {
-        throw new BadRequestException(`WiFi「${dto.wifiSsid}」不在允許的打卡網路清單中。`);
+      const workplace = await this.workplaceRepo.findOne({
+        where: { isActive: true },
+        order: { id: 'ASC' },
+      });
+      if (workplace) {
+        const allowed = workplace.getAllowedSsids();
+        if (allowed.length > 0 && !allowed.includes(dto.wifiSsid)) {
+          throw new BadRequestException(`WiFi「${dto.wifiSsid}」不在允許的打卡網路清單中。`);
+        }
+      } else {
+        this.logger.warn('No active workplace configured — skipping WiFi SSID check');
       }
     }
 
@@ -204,7 +219,7 @@ export class AttendanceService {
     query: AttendanceQueryDto,
   ): Promise<PaginatedResult<AttendanceRecord>> {
     const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const limit = query.limit ?? query.pageSize ?? 20;
     const skip = (page - 1) * limit;
 
     const where: FindManyOptions<AttendanceRecord>['where'] = { employeeId };

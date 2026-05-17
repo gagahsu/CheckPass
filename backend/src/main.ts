@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { types } from 'pg';
+// Return DATE columns as plain strings (YYYY-MM-DD) instead of JavaScript Date objects
+types.setTypeParser(1082, (val: string) => val);
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';

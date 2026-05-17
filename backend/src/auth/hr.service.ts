@@ -53,6 +53,8 @@ export class HrService {
       name: dto.name,
       email: dto.email ?? null,
       hireDate: dto.hireDate ? (new Date(dto.hireDate) as unknown as Date) : null,
+      departmentId: dto.departmentId ?? null,
+      positionId: dto.positionId ?? null,
       status: 'active',
       roles,
     });
@@ -142,6 +144,8 @@ export class HrService {
     if (dto.hireDate !== undefined)
       employee.hireDate = dto.hireDate ? (new Date(dto.hireDate) as unknown as Date) : null;
     if (dto.status !== undefined) employee.status = dto.status;
+    if ('departmentId' in dto) employee.departmentId = dto.departmentId ?? null;
+    if ('positionId' in dto) employee.positionId = dto.positionId ?? null;
 
     await this.employeeRepo.save(employee);
     return this.toRow(employee);

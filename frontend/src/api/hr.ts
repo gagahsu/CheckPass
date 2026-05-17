@@ -7,6 +7,8 @@ export const hrApi = {
     email?: string
     hireDate?: string
     roleNames?: RoleName[]
+    departmentId?: number
+    positionId?: number
   }): Promise<Employee> {
     return apiClient.post<Employee>('/hr/employees', data).then((r) => r.data)
   },
@@ -28,7 +30,7 @@ export const hrApi = {
 
   updateEmployee(
     id: number,
-    data: Partial<{ name: string; email: string; hireDate: string; status: string }>,
+    data: Partial<{ name: string; email: string; hireDate: string; status: string; departmentId: number | null; positionId: number | null }>,
   ): Promise<Employee> {
     return apiClient.patch<Employee>(`/hr/employees/${id}`, data).then((r) => r.data)
   },

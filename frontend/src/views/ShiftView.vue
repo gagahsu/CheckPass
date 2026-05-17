@@ -68,11 +68,23 @@
               >
                 <div class="shift-type-header-row">
                   <div class="shift-type-name">{{ st.name }}</div>
-                  <i
-                    v-if="viewMode === 'week' && isUnderstaffedThisWeek(st.id)"
-                    class="pi pi-exclamation-triangle understaffed-icon"
-                    title="本週有日期人力不足"
-                  />
+                  <div class="shift-type-actions" v-if="canManage" @click.stop>
+                    <i
+                      class="pi pi-pencil action-icon"
+                      title="編輯班別"
+                      @click="openEditShiftType(st)"
+                    />
+                    <i
+                      class="pi pi-trash action-icon action-icon-delete"
+                      title="刪除班別"
+                      @click="handleDeleteShiftType(st)"
+                    />
+                    <i
+                      v-if="viewMode === 'week' && isUnderstaffedThisWeek(st.id)"
+                      class="pi pi-exclamation-triangle understaffed-icon"
+                      title="本週有日期人力不足"
+                    />
+                  </div>
                 </div>
                 <div class="shift-type-time">{{ st.startTime }} – {{ st.endTime }}</div>
                 <div class="shift-type-range">{{ st.minStaff }}–{{ st.maxStaff }} 人</div>
@@ -240,6 +252,16 @@
               <InputText v-model.number="newShiftType.graceMinutes" type="number" min="0" max="60" class="w-full" />
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">最少人數</label>
+              <InputText v-model.number="newShiftType.minStaff" type="number" min="1" class="w-full" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">最多人數</label>
+              <InputText v-model.number="newShiftType.maxStaff" type="number" min="1" class="w-full" />
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">顏色</label>
             <div class="color-picker">
@@ -258,6 +280,68 @@
         <template #footer>
           <Button label="取消" severity="secondary" @click="addShiftTypeVisible = false" />
           <Button label="新增" icon="pi pi-check" :loading="addingShiftType" @click="handleAddShiftType" />
+        </template>
+      </Dialog>
+      <!-- Edit Shift Type Dialog -->
+      <Dialog
+        v-model:visible="editShiftTypeVisible"
+        header="編輯班別"
+        modal
+        :style="{ width: '420px' }"
+      >
+        <form class="shift-type-form" @submit.prevent="handleEditShiftType">
+          <div class="form-group">
+            <label class="form-label">班別名稱 *</label>
+            <InputText v-model="editShiftTypeForm.name" class="w-full" required />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">開始時間 *</label>
+              <InputText v-model="editShiftTypeForm.startTime" type="time" class="w-full" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">結束時間 *</label>
+              <InputText v-model="editShiftTypeForm.endTime" type="time" class="w-full" required />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">休息時間（分）</label>
+              <InputText v-model.number="editShiftTypeForm.breakMinutes" type="number" min="0" max="480" class="w-full" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">彈性時間（分）</label>
+              <InputText v-model.number="editShiftTypeForm.graceMinutes" type="number" min="0" max="60" class="w-full" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">最少人數</label>
+              <InputText v-model.number="editShiftTypeForm.minStaff" type="number" min="1" class="w-full" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">最多人數</label>
+              <InputText v-model.number="editShiftTypeForm.maxStaff" type="number" min="1" class="w-full" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">顏色</label>
+            <div class="color-picker">
+              <label
+                v-for="c in colorOptions"
+                :key="c"
+                class="color-option"
+                :class="{ selected: editShiftTypeForm.color === c }"
+                :style="{ background: c }"
+                @click="editShiftTypeForm.color = c"
+              ></label>
+            </div>
+          </div>
+          <div v-if="editShiftTypeError" class="form-error">{{ editShiftTypeError }}</div>
+        </form>
+        <template #footer>
+          <Button label="取消" severity="secondary" @click="editShiftTypeVisible = false" />
+          <Button label="儲存" icon="pi pi-check" :loading="savingShiftType" @click="handleEditShiftType" />
         </template>
       </Dialog>
     </div>
@@ -316,6 +400,24 @@ const newShiftType = ref({
   endTime: '18:00',
   breakMinutes: 60,
   graceMinutes: 5,
+  minStaff: 1,
+  maxStaff: 10,
+  color: '#06b6d4',
+})
+
+// Edit shift type dialog
+const editShiftTypeVisible = ref(false)
+const savingShiftType = ref(false)
+const editShiftTypeError = ref<string | null>(null)
+const editingShiftTypeId = ref<number | null>(null)
+const editShiftTypeForm = ref({
+  name: '',
+  startTime: '09:00',
+  endTime: '18:00',
+  breakMinutes: 60,
+  graceMinutes: 5,
+  minStaff: 1,
+  maxStaff: 10,
   color: '#06b6d4',
 })
 
@@ -390,7 +492,8 @@ function shiftDurationHours(st: ShiftType): number {
 const staffingByDate = computed(() => {
   const map = new Map<string, number>()
   for (const entry of scheduleEntries.value) {
-    const key = `${entry.date}-${entry.shiftTypeId}`
+    const date = String(entry.date).slice(0, 10)
+    const key = `${date}-${entry.shiftTypeId}`
     map.set(key, (map.get(key) ?? 0) + 1)
   }
   return map
@@ -438,7 +541,9 @@ function staffingTitle(st: ShiftType, date: string): string {
 }
 
 function getEntries(empId: number, date: string): ScheduleEntry[] {
-  return scheduleEntries.value.filter((e) => e.employeeId === empId && e.date === date)
+  return scheduleEntries.value.filter(
+    (e) => Number(e.employeeId) === Number(empId) && String(e.date).slice(0, 10) === date,
+  )
 }
 
 function prevPeriod(): void {
@@ -500,6 +605,7 @@ async function onDrop(empId: number, date: string): Promise<void> {
       date,
       storeId: storeId.value,
     })
+    entry.shiftType = draggedShiftType.value
     scheduleEntries.value.push(entry)
     toast.add({ severity: 'success', summary: '排班成功', detail: `${date} 已排班`, life: 2000 })
   } catch (err: unknown) {
@@ -542,7 +648,7 @@ async function handlePublish(): Promise<void> {
 }
 
 function openAddShiftType(): void {
-  newShiftType.value = { name: '', startTime: '09:00', endTime: '18:00', breakMinutes: 60, graceMinutes: 5, color: '#06b6d4' }
+  newShiftType.value = { name: '', startTime: '09:00', endTime: '18:00', breakMinutes: 60, graceMinutes: 5, minStaff: 1, maxStaff: 10, color: '#06b6d4' }
   addShiftTypeError.value = null
   addShiftTypeVisible.value = true
 }
@@ -568,6 +674,59 @@ async function handleAddShiftType(): Promise<void> {
     addShiftTypeError.value = '新增失敗，請稍後再試'
   } finally {
     addingShiftType.value = false
+  }
+}
+
+function openEditShiftType(st: ShiftType): void {
+  editingShiftTypeId.value = st.id
+  editShiftTypeForm.value = {
+    name: st.name,
+    startTime: st.startTime,
+    endTime: st.endTime,
+    breakMinutes: st.breakMinutes ?? 60,
+    graceMinutes: st.graceMinutes ?? 5,
+    minStaff: st.minStaff ?? 1,
+    maxStaff: st.maxStaff ?? 10,
+    color: st.color ?? '#06b6d4',
+  }
+  editShiftTypeError.value = null
+  editShiftTypeVisible.value = true
+}
+
+async function handleEditShiftType(): Promise<void> {
+  if (!editingShiftTypeId.value) return
+  if (!editShiftTypeForm.value.name.trim()) {
+    editShiftTypeError.value = '請填寫班別名稱'
+    return
+  }
+  savingShiftType.value = true
+  editShiftTypeError.value = null
+  try {
+    const updated = await shiftApi.updateShiftType(editingShiftTypeId.value, {
+      ...editShiftTypeForm.value,
+      startTime: editShiftTypeForm.value.startTime.slice(0, 5),
+      endTime: editShiftTypeForm.value.endTime.slice(0, 5),
+    })
+    const idx = shiftTypes.value.findIndex((s) => s.id === editingShiftTypeId.value)
+    if (idx !== -1) shiftTypes.value[idx] = updated
+    editShiftTypeVisible.value = false
+    toast.add({ severity: 'success', summary: `班別「${updated.name}」已更新`, life: 3000 })
+  } catch {
+    editShiftTypeError.value = '儲存失敗，請稍後再試'
+  } finally {
+    savingShiftType.value = false
+  }
+}
+
+async function handleDeleteShiftType(st: ShiftType): Promise<void> {
+  if (!confirm(`確定要刪除班別「${st.name}」？`)) return
+  try {
+    await shiftApi.deleteShiftType(st.id)
+    shiftTypes.value = shiftTypes.value.filter((s) => s.id !== st.id)
+    toast.add({ severity: 'success', summary: `班別「${st.name}」已刪除`, life: 3000 })
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '刪除失敗'
+    toast.add({ severity: 'error', summary: '刪除失敗', detail: msg, life: 4000 })
   }
 }
 
@@ -724,6 +883,37 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 0.875rem;
   color: #111827;
+}
+
+.shift-type-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.shift-type-item:hover .shift-type-actions {
+  opacity: 1;
+}
+
+.action-icon {
+  font-size: 0.75rem;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.action-icon:hover {
+  color: #0284c7;
+  background: #e0f2fe;
+}
+
+.action-icon-delete:hover {
+  color: #dc2626;
+  background: #fee2e2;
 }
 
 .shift-type-time {
